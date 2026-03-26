@@ -1,0 +1,28 @@
+{
+  "description": "Auto-format markdown on Write/Edit, final lint check on Stop",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/mdlint.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/mdlint-check.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

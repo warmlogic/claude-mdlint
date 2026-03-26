@@ -1,0 +1,9 @@
+{
+  "name": "mdlint",
+  "description": "Auto-format and lint markdown files written by Claude Code — prettier + markdownlint on every Write/Edit, with a Stop hook safety net",
+  "version": "0.1.2",
+  "author": {
+    "name": "Matt Mollison",
+    "email": "matt.mollison@gmail.com"
+  }
+}
