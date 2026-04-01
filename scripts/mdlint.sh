@@ -19,6 +19,13 @@ fi
 # PostToolUse hook: auto-format and lint markdown files after Write or Edit
 # Pipeline: prettier (formatting) → markdownlint --fix (structural) → report unfixable
 
+# Early exit: read file_path first, skip non-markdown before any other work
+file_path=$(jq -r '.tool_input.file_path // ""')
+
+if [[ "$file_path" != *.md ]] || [[ ! -f "$file_path" ]]; then
+  exit 0
+fi
+
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 # Config priority: project > user home > plugin default.
@@ -28,18 +35,6 @@ elif [ -f "$HOME/.markdownlint.json" ]; then
   LINT_CONFIG="$HOME/.markdownlint.json"
 else
   LINT_CONFIG="$PLUGIN_ROOT/config/.markdownlint.json"
-fi
-
-file_path=$(jq -r '.tool_input.file_path // ""')
-
-# Skip if not a markdown file
-if [[ "$file_path" != *.md ]]; then
-  exit 0
-fi
-
-# Skip if file doesn't exist (e.g., failed write)
-if [[ ! -f "$file_path" ]]; then
-  exit 0
 fi
 
 # Step 1: Prettier — table alignment, whitespace, list indentation
