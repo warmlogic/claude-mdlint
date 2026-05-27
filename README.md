@@ -1,16 +1,24 @@
 # mdlint
 
-Auto-format and lint markdown files written by Claude Code. Runs prettier and markdownlint on every Write/Edit of a `.md` file.
+Auto-format and lint markdown files written by Claude Code. Two hooks work together: one fires on every Write/Edit, the other runs at session end as a safety net.
 
 ## How it works
 
-Run `bash scripts/mdlint.sh --help` for current checks.
+### PostToolUse — `scripts/mdlint.sh` (triggered on Write/Edit/MultiEdit)
 
-**PostToolUse (Write/Edit):**
+Runs immediately after Claude writes or edits a `.md` file:
 
 1. Prettier formats tables, whitespace, list indentation
 2. Markdownlint auto-fixes heading structure, blank lines, code fences
 3. Remaining unfixable issues are reported back to Claude with fix hints
+
+Run `bash scripts/mdlint.sh --help` for the full check list.
+
+### Stop — `scripts/mdlint-check.sh` (triggered at session end)
+
+Scans all git-modified `.md` files when the session ends — catches files modified by shell commands or git operations that never triggered a PostToolUse event. Reports unfixable issues back to Claude; does **not** auto-fix (silent rewrites at session end would be surprising).
+
+Run `bash scripts/mdlint-check.sh --help` for details.
 
 ## Installation
 
