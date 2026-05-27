@@ -5,6 +5,12 @@ set -euo pipefail
 #@check 2  fix     Markdownlint auto-fix — heading structure, blank lines, code fences
 #@check 3  report  Remaining unfixable issues → fed back to Claude with fix hints
 
+# CC hooks run in a non-login shell — /opt/homebrew/bin isn't on PATH by default
+for _d in /opt/homebrew/bin /usr/local/bin; do
+  [[ -d "$_d" && ":$PATH:" != *":$_d:"* ]] && export PATH="$_d:$PATH"
+done
+unset _d
+
 # --- --help: print check summary from #@check tags in this script ---
 if [ "${1:-}" = "--help" ]; then
   echo "mdlint — PostToolUse hook: auto-format markdown after Write/Edit"

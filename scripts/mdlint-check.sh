@@ -19,6 +19,12 @@ fi
 # Stop hook: final markdown lint check on all modified .md files
 # Safety net — catches anything missed during the session
 
+# CC hooks run in a non-login shell — /opt/homebrew/bin isn't on PATH by default
+for _d in /opt/homebrew/bin /usr/local/bin; do
+  [[ -d "$_d" && ":$PATH:" != *":$_d:"* ]] && export PATH="$_d:$PATH"
+done
+unset _d
+
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 # Config priority: project > user home > plugin default.
