@@ -4,7 +4,7 @@
   "MD031": true,
   "MD032": true,
   "MD040": true,
-  "MD060": false,
+  "MD060": { "style": "aligned" },
   "MD013": false,
   "MD033": false,
   "MD041": false

@@ -48,12 +48,12 @@ The bundled `config/.markdownlint.json` enables:
 - MD031: blanks around fences
 - MD032: blanks around lists
 - MD040: fenced code language
+- MD060: table column style (aligned — Prettier produces this by default)
 
 And disables:
 
-- MD013: line length (too noisy for AI-generated content)
+- MD013: line length (no limit enforced)
 - MD033: inline HTML (needed for some markdown features)
 - MD041: first line heading (not every file starts with a heading)
-- MD060: link/image style (no preference)
 
-To customize, edit `config/.markdownlint.json` in the plugin directory.
+To customize, place a `.markdownlint.json` in your project root or `~/.markdownlint.json` in your home directory — these override the plugin default. To change the plugin default itself, edit `config/.markdownlint.json` in the plugin directory.
