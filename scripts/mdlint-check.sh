@@ -2,17 +2,18 @@
 set -euo pipefail
 
 #@check 1  scan    Find all modified/staged .md files in the git working tree
-#@check 2  lint    Run markdownlint on each, collect unfixable errors
-#@check 3  report  Surface up to 10 issues as a final safety net
+#@check 2  fix     Auto-fix each file: prettier + markdownlint --fix (bg-session coverage)
+#@check 3  lint    Re-lint each file, collect genuinely-unfixable errors
+#@check 4  report  Surface up to 10 issues as a final safety net
 
 # --- --help: print check summary from #@check tags in this script ---
 if [ "${1:-}" = "--help" ]; then
-  echo "mdlint-check — Stop hook: final markdown lint check on modified files"
+  echo "mdlint-check — Stop hook: auto-fix then lint modified .md files"
   echo ""
   echo "Pipeline:"
   grep '^#@check' "$0" | sed 's/^#@check /  /'
   echo ""
-  echo "Requires: markdownlint-cli2, git"
+  echo "Requires: markdownlint-cli2, git (prettier optional)"
   exit 0
 fi
 
@@ -36,9 +37,8 @@ else
   LINT_CONFIG="$PLUGIN_ROOT/config/.markdownlint.json"
 fi
 
-if ! command -v markdownlint-cli2 &>/dev/null; then
-  exit 0
-fi
+# shellcheck source=./_autofix.sh
+source "$PLUGIN_ROOT/scripts/_autofix.sh"
 
 # Find modified/staged .md files
 files=$(git diff --name-only --diff-filter=ACMR HEAD 2>/dev/null | grep '\.md$' || true)
@@ -52,11 +52,15 @@ fi
 errors=""
 while IFS= read -r f; do
   if [[ -f "$f" ]]; then
-    out=$(markdownlint-cli2 --config "$LINT_CONFIG" "$f" 2>&1) || true
-    if [[ "$out" == *"error(s)"* && "$out" != *"0 error(s)"* ]]; then
-      file_errors=$(echo "$out" | grep "error MD" || true)
-      if [[ -n "$file_errors" ]]; then
-        errors="$errors$file_errors"$'\n'
+    # Auto-fix first so bg sessions (no PostToolUse) still get formatted.
+    run_autofix "$f" "$LINT_CONFIG"
+    if command -v markdownlint-cli2 &>/dev/null; then
+      out=$(markdownlint-cli2 --config "$LINT_CONFIG" "$f" 2>&1) || true
+      if [[ "$out" == *"error(s)"* && "$out" != *"0 error(s)"* ]]; then
+        file_errors=$(echo "$out" | grep "error MD" || true)
+        if [[ -n "$file_errors" ]]; then
+          errors="$errors$file_errors"$'\n'
+        fi
       fi
     fi
   fi

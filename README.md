@@ -16,7 +16,7 @@ Run `bash scripts/mdlint.sh --help` for the full check list.
 
 ### Stop — `scripts/mdlint-check.sh` (triggered at session end)
 
-Scans all git-modified `.md` files when the session ends — catches files modified by shell commands or git operations that never triggered a PostToolUse event. Reports unfixable issues back to Claude; does **not** auto-fix (silent rewrites at session end would be surprising).
+Scans all git-modified `.md` files when the session ends. Runs the same auto-fix pass as the PostToolUse hook (prettier + markdownlint --fix), then reports genuinely unfixable issues back to Claude. This covers background/headless sessions where PostToolUse never fires.
 
 Run `bash scripts/mdlint-check.sh --help` for details.
 

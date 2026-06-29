@@ -213,8 +213,8 @@ else
   fail_test "staged clean .md — expected exit 0"
 fi
 
-# A staged .md with an unfixable MD040 error → exits 2 and reports to stderr.
-# mdlint-check.sh does not auto-fix; it only reports remaining issues.
+# A staged .md with an unfixable MD040 error → auto-fix runs but can't fix it,
+# then lint exits 2 and reports to stderr.
 tmp_repo=$(setup_git_repo)
 printf '# Title\n\n```\ncode\n```\n' > "$tmp_repo/test.md"
 git -C "$tmp_repo" add test.md
@@ -244,6 +244,178 @@ if [ $? -eq 2 ]; then
   ok "minimal PATH env — markdownlint-cli2 found via PATH injection, error correctly reported"
 else
   fail_test "minimal PATH env — expected exit 2; PATH injection may have regressed (silent exit 0 = binary not found)"
+fi
+
+# ---------------------------------------------------------------------------
+# mdlint-check.sh: Stop hook auto-fix (Bug 1)
+# After the fix, mdlint-check.sh must run the same prettier + markdownlint
+# --fix pass that mdlint.sh does, so background sessions (no PostToolUse)
+# still get formatted at Stop.
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- mdlint-check.sh: Stop hook auto-fix (Bug 1) ---"
+
+# A staged .md with ONLY a prettier-fixable issue (misaligned MD060 table)
+# should be auto-formatted by mdlint-check.sh and exit 0.
+tmp_repo=$(setup_git_repo)
+printf '| A | B |\n| --- | --- |\n| short | a much longer value here |\n' > "$tmp_repo/table.md"
+git -C "$tmp_repo" add table.md
+before_table=$(cat "$tmp_repo/table.md")
+fix_exit=0
+(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1 || fix_exit=$?
+after_table=$(cat "$tmp_repo/table.md")
+if [ "$before_table" != "$after_table" ]; then
+  ok "Stop hook autofix — misaligned table auto-formatted by mdlint-check.sh (bg-session fix)"
+else
+  fail_test "Stop hook autofix — table not formatted; mdlint-check.sh does not run prettier"
+fi
+if [ "$fix_exit" -eq 0 ]; then
+  ok "Stop hook autofix — exits 0 after auto-fixing a prettier-only issue (no residual errors)"
+else
+  fail_test "Stop hook autofix — expected exit 0 after auto-fix, got $fix_exit"
+fi
+
+# A staged .md with a no-language fenced block (MD040, not auto-fixable) should
+# still exit 2 after the fix attempt, with the error reported in stderr.
+tmp_repo=$(setup_git_repo)
+printf '# Title\n\n```\ncode\n```\n' > "$tmp_repo/unfixable.md"
+git -C "$tmp_repo" add unfixable.md
+unfixable_exit=0
+unfixable_stderr=$(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK" 2>&1 >/dev/null) || unfixable_exit=$?
+if [ "$unfixable_exit" -eq 2 ]; then
+  ok "Stop hook autofix — unfixable MD040 still exits 2 after fix attempt"
+else
+  fail_test "Stop hook autofix — unfixable MD040: expected exit 2, got $unfixable_exit"
+fi
+if echo "$unfixable_stderr" | grep -q "MD040"; then
+  ok "Stop hook autofix — MD040 error present in stderr after failed fix attempt"
+else
+  fail_test "Stop hook autofix — MD040 missing from stderr"
+fi
+
+# ---------------------------------------------------------------------------
+# PostToolUse if-gate (Bug 2)
+# The old '|| true' swallowed mdlint.sh's exit 2 for unfixable issues.
+# The new 'if'-based gating must let exit 2 propagate for .md files while
+# still exiting 0 cleanly for non-.md files.
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- PostToolUse if-gate (Bug 2) ---"
+
+run_if_gate() {
+  local payload="$1"
+  (
+    input=$(printf '%s' "$payload")
+    if printf '%s' "$input" | jq -e '(.tool_input.file_path // "") | endswith(".md")' >/dev/null 2>&1; then
+      printf '%s' "$input" | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK"
+    fi
+  )
+}
+
+tmp_md_gate=$(mktemp_md)
+printf '# Title\n\n```\ncode\n```\n' > "$tmp_md_gate"
+gate_payload=$(printf '{"tool_input":{"file_path":"%s"}}' "$tmp_md_gate")
+run_if_gate "$gate_payload" >/dev/null 2>&1
+gate_exit=$?
+if [ "$gate_exit" -eq 2 ]; then
+  ok "PostToolUse if-gate — exit 2 from mdlint.sh propagates to caller (unfixable MD040)"
+else
+  fail_test "PostToolUse if-gate — expected exit 2, got $gate_exit; exit code may be swallowed"
+fi
+
+tmp_txt_gate=$(mktemp /tmp/test-mdlint-XXXXXX)
+printf 'not markdown\n' > "$tmp_txt_gate"
+txt_payload=$(printf '{"tool_input":{"file_path":"%s"}}' "$tmp_txt_gate")
+run_if_gate "$txt_payload" >/dev/null 2>&1
+txt_exit=$?
+if [ "$txt_exit" -eq 0 ]; then
+  ok "PostToolUse if-gate — non-.md file exits 0 cleanly (no false positive)"
+else
+  fail_test "PostToolUse if-gate — non-.md should exit 0, got $txt_exit"
+fi
+
+# ---------------------------------------------------------------------------
+# hooks.json actual command (Bug 2 regression)
+# Tests that hooks.json was correctly updated to the if-gate form by reading
+# and executing the actual command string from hooks.json. If the old '|| true'
+# form is still present, the exit-2 test below will fail.
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- hooks.json actual command (Bug 2 regression) ---"
+
+hook_cmd=$(jq -r '.hooks.PostToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
+
+run_hooks_json_cmd() {
+  local payload="$1"
+  (
+    export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
+    printf '%s' "$payload" | eval "$hook_cmd"
+  )
+}
+
+tmp_md_hjson=$(mktemp_md)
+printf '# Title\n\n```\ncode\n```\n' > "$tmp_md_hjson"
+hjson_payload=$(printf '{"tool_input":{"file_path":"%s"}}' "$tmp_md_hjson")
+run_hooks_json_cmd "$hjson_payload" >/dev/null 2>&1
+hjson_exit=$?
+if [ "$hjson_exit" -eq 2 ]; then
+  ok "hooks.json command — exit 2 propagates for unfixable MD040 (actual hooks.json command string)"
+else
+  fail_test "hooks.json command — expected exit 2, got $hjson_exit (hooks.json may not have been updated)"
+fi
+
+tmp_txt_hjson=$(mktemp /tmp/test-mdlint-XXXXXX)
+printf 'not markdown\n' > "$tmp_txt_hjson"
+txt_hjson_payload=$(printf '{"tool_input":{"file_path":"%s"}}' "$tmp_txt_hjson")
+run_hooks_json_cmd "$txt_hjson_payload" >/dev/null 2>&1
+txt_hjson_exit=$?
+if [ "$txt_hjson_exit" -eq 0 ]; then
+  ok "hooks.json command — non-.md input exits 0 cleanly"
+else
+  fail_test "hooks.json command — non-.md should exit 0, got $txt_hjson_exit"
+fi
+
+# ---------------------------------------------------------------------------
+# Stop hook: markdownlint --fix leg + fix-then-lint ordering
+# Verify that markdownlint --fix runs (not just prettier) and that autofix
+# runs BEFORE the lint check (so fixable issues are cleaned up first).
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- Stop hook: markdownlint --fix leg + fix-then-lint ordering ---"
+
+# MD022 (blank line after heading) is fixed by markdownlint --fix, not prettier.
+# Before fix: "# Title\nText right after heading.\n" (no blank line)
+# After fix:  "# Title\n\nText right after heading.\n" (blank line added)
+tmp_repo=$(setup_git_repo)
+printf '# Title\nText right after heading.\n' > "$tmp_repo/md022.md"
+git -C "$tmp_repo" add md022.md
+before_md022=$(cat "$tmp_repo/md022.md")
+(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1
+after_md022=$(cat "$tmp_repo/md022.md")
+if [ "$before_md022" != "$after_md022" ]; then
+  ok "Stop hook autofix — MD022 auto-fixed by markdownlint --fix (not prettier)"
+else
+  fail_test "Stop hook autofix — MD022 not fixed; markdownlint --fix leg may not run in Stop hook"
+fi
+
+# Combo: MD022 (fixable) + MD040 (unfixable).
+# Proves fix-then-lint ordering: file modified (MD022 fixed) AND exit 2 (MD040 remains).
+tmp_repo=$(setup_git_repo)
+printf '# Title\nText right after heading.\n\n```\ncode\n```\n' > "$tmp_repo/combo.md"
+git -C "$tmp_repo" add combo.md
+before_combo=$(cat "$tmp_repo/combo.md")
+combo_exit=0
+(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1 || combo_exit=$?
+after_combo=$(cat "$tmp_repo/combo.md")
+if [ "$combo_exit" -eq 2 ]; then
+  ok "Stop hook fix-then-lint — MD040 still exits 2 after autofix (unfixable error persists)"
+else
+  fail_test "Stop hook fix-then-lint — expected exit 2, got $combo_exit"
+fi
+if [ "$before_combo" != "$after_combo" ]; then
+  ok "Stop hook fix-then-lint — file modified (MD022 auto-fixed before lint check ran)"
+else
+  fail_test "Stop hook fix-then-lint — file not modified; autofix may not run before lint"
 fi
 
 # --- Summary ---

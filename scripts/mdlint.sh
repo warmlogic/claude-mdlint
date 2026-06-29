@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#@check 1  format  Prettier — table alignment, whitespace, list indentation
-#@check 2  fix     Markdownlint auto-fix — heading structure, blank lines, code fences
-#@check 3  report  Remaining unfixable issues → fed back to Claude with fix hints
+#@check 1  fix     Prettier + markdownlint auto-fix — tables, whitespace, heading structure, blank lines
+#@check 2  report  Remaining unfixable issues → fed back to Claude with fix hints
 
 # CC hooks run in a non-login shell — /opt/homebrew/bin isn't on PATH by default
 for _d in /opt/homebrew/bin /usr/local/bin; do
@@ -18,7 +17,7 @@ if [ "${1:-}" = "--help" ]; then
   echo "Pipeline:"
   grep '^#@check' "$0" | sed 's/^#@check /  /'
   echo ""
-  echo "Requires: prettier, markdownlint-cli2"
+  echo "Requires: markdownlint-cli2 (prettier optional)"
   exit 0
 fi
 
@@ -43,16 +42,14 @@ else
   LINT_CONFIG="$PLUGIN_ROOT/config/.markdownlint.json"
 fi
 
-# Step 1: Prettier — table alignment, whitespace, list indentation
-if command -v prettier &>/dev/null; then
-  prettier --write --prose-wrap preserve "$file_path" >/dev/null 2>&1 || true
-fi
+# shellcheck source=./_autofix.sh
+source "$PLUGIN_ROOT/scripts/_autofix.sh"
 
-# Step 2: Markdownlint auto-fix — heading structure, blank lines, code fences
+# Steps 1+2: Prettier + markdownlint auto-fix
+run_autofix "$file_path" "$LINT_CONFIG"
+
+# Step 3: Report any remaining unfixable issues
 if command -v markdownlint-cli2 &>/dev/null; then
-  markdownlint-cli2 --fix --config "$LINT_CONFIG" "$file_path" 2>/dev/null || true
-
-  # Step 3: Report any remaining unfixable issues
   output=$(markdownlint-cli2 --config "$LINT_CONFIG" "$file_path" 2>&1) || true
   if [[ -n "$output" && "$output" == *"error(s)"* && "$output" != *"0 error(s)"* ]]; then
     errors=$(echo "$output" | grep "error MD" || true)
