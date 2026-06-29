@@ -13,7 +13,7 @@ if [ "${1:-}" = "--help" ]; then
   echo "Pipeline:"
   grep '^#@check' "$0" | sed 's/^#@check /  /'
   echo ""
-  echo "Requires: prettier, markdownlint-cli2, git"
+  echo "Requires: markdownlint-cli2, git (prettier optional)"
   exit 0
 fi
 
@@ -37,10 +37,6 @@ else
   LINT_CONFIG="$PLUGIN_ROOT/config/.markdownlint.json"
 fi
 
-if ! command -v markdownlint-cli2 &>/dev/null; then
-  exit 0
-fi
-
 # shellcheck source=./_autofix.sh
 source "$PLUGIN_ROOT/scripts/_autofix.sh"
 
@@ -58,11 +54,13 @@ while IFS= read -r f; do
   if [[ -f "$f" ]]; then
     # Auto-fix first so bg sessions (no PostToolUse) still get formatted.
     run_autofix "$f" "$LINT_CONFIG"
-    out=$(markdownlint-cli2 --config "$LINT_CONFIG" "$f" 2>&1) || true
-    if [[ "$out" == *"error(s)"* && "$out" != *"0 error(s)"* ]]; then
-      file_errors=$(echo "$out" | grep "error MD" || true)
-      if [[ -n "$file_errors" ]]; then
-        errors="$errors$file_errors"$'\n'
+    if command -v markdownlint-cli2 &>/dev/null; then
+      out=$(markdownlint-cli2 --config "$LINT_CONFIG" "$f" 2>&1) || true
+      if [[ "$out" == *"error(s)"* && "$out" != *"0 error(s)"* ]]; then
+        file_errors=$(echo "$out" | grep "error MD" || true)
+        if [[ -n "$file_errors" ]]; then
+          errors="$errors$file_errors"$'\n'
+        fi
       fi
     fi
   fi

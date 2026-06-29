@@ -29,7 +29,7 @@ config/
 
 - **PostToolUse fires in foreground sessions only; Stop fires in all sessions (including background/headless).** Both run the same autofix pass so bg sessions still get formatted. The shared `_autofix.sh` keeps them in sync and prevents drift.
 - **The PostToolUse hook command uses an `if`-gate, not `|| true`.** `|| true` swallows `mdlint.sh`'s intentional `exit 2`, preventing unfixable-issue feedback from reaching the model. The `if`-gate lets the exit code propagate for `.md` files while cleanly no-op'ing for non-`.md` edits.
-- **`_autofix.sh` is sourced, not executed.** Sourcing inherits the caller's PATH and `set -euo pipefail` without any subprocess or argument-passing overhead.
+- **`_autofix.sh` is sourced, not executed.** Sourcing inherits the caller's PATH and `set -euo pipefail` without forking a subprocess.
 - **Config priority** (runtime): `$CLAUDE_PROJECT_DIR/.markdownlint.json` → `$HOME/.markdownlint.json` → `config/.markdownlint.json`. Projects and users override the bundled default; the bundled default is the final fallback.
 
 ## Versioning

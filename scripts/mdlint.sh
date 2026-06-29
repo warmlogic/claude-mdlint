@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#@check 1  format  Prettier — table alignment, whitespace, list indentation
-#@check 2  fix     Markdownlint auto-fix — heading structure, blank lines, code fences
-#@check 3  report  Remaining unfixable issues → fed back to Claude with fix hints
+#@check 1  fix     Prettier + markdownlint auto-fix — tables, whitespace, heading structure, blank lines
+#@check 2  report  Remaining unfixable issues → fed back to Claude with fix hints
 
 # CC hooks run in a non-login shell — /opt/homebrew/bin isn't on PATH by default
 for _d in /opt/homebrew/bin /usr/local/bin; do
@@ -18,7 +17,7 @@ if [ "${1:-}" = "--help" ]; then
   echo "Pipeline:"
   grep '^#@check' "$0" | sed 's/^#@check /  /'
   echo ""
-  echo "Requires: prettier, markdownlint-cli2"
+  echo "Requires: markdownlint-cli2 (prettier optional)"
   exit 0
 fi
 
