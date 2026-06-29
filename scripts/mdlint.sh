@@ -43,16 +43,14 @@ else
   LINT_CONFIG="$PLUGIN_ROOT/config/.markdownlint.json"
 fi
 
-# Step 1: Prettier — table alignment, whitespace, list indentation
-if command -v prettier &>/dev/null; then
-  prettier --write --prose-wrap preserve "$file_path" >/dev/null 2>&1 || true
-fi
+# shellcheck source=./_autofix.sh
+source "$PLUGIN_ROOT/scripts/_autofix.sh"
 
-# Step 2: Markdownlint auto-fix — heading structure, blank lines, code fences
+# Steps 1+2: Prettier + markdownlint auto-fix
+run_autofix "$file_path" "$LINT_CONFIG"
+
+# Step 3: Report any remaining unfixable issues
 if command -v markdownlint-cli2 &>/dev/null; then
-  markdownlint-cli2 --fix --config "$LINT_CONFIG" "$file_path" 2>/dev/null || true
-
-  # Step 3: Report any remaining unfixable issues
   output=$(markdownlint-cli2 --config "$LINT_CONFIG" "$file_path" 2>&1) || true
   if [[ -n "$output" && "$output" == *"error(s)"* && "$output" != *"0 error(s)"* ]]; then
     errors=$(echo "$output" | grep "error MD" || true)

@@ -246,6 +246,94 @@ else
   fail_test "minimal PATH env — expected exit 2; PATH injection may have regressed (silent exit 0 = binary not found)"
 fi
 
+# ---------------------------------------------------------------------------
+# mdlint-check.sh: Stop hook auto-fix (Bug 1)
+# After the fix, mdlint-check.sh must run the same prettier + markdownlint
+# --fix pass that mdlint.sh does, so background sessions (no PostToolUse)
+# still get formatted at Stop.
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- mdlint-check.sh: Stop hook auto-fix (Bug 1) ---"
+
+# A staged .md with ONLY a prettier-fixable issue (misaligned MD060 table)
+# should be auto-formatted by mdlint-check.sh and exit 0.
+tmp_repo=$(setup_git_repo)
+printf '| A | B |\n| --- | --- |\n| short | a much longer value here |\n' > "$tmp_repo/table.md"
+git -C "$tmp_repo" add table.md
+before_table=$(cat "$tmp_repo/table.md")
+fix_exit=0
+(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1 || fix_exit=$?
+after_table=$(cat "$tmp_repo/table.md")
+if [ "$before_table" != "$after_table" ]; then
+  ok "Stop hook autofix — misaligned table auto-formatted by mdlint-check.sh (bg-session fix)"
+else
+  fail_test "Stop hook autofix — table not formatted; mdlint-check.sh does not run prettier"
+fi
+if [ "$fix_exit" -eq 0 ]; then
+  ok "Stop hook autofix — exits 0 after auto-fixing a prettier-only issue (no residual errors)"
+else
+  fail_test "Stop hook autofix — expected exit 0 after auto-fix, got $fix_exit"
+fi
+
+# A staged .md with a no-language fenced block (MD040, not auto-fixable) should
+# still exit 2 after the fix attempt, with the error reported in stderr.
+tmp_repo=$(setup_git_repo)
+printf '# Title\n\n```\ncode\n```\n' > "$tmp_repo/unfixable.md"
+git -C "$tmp_repo" add unfixable.md
+unfixable_exit=0
+unfixable_stderr=$(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK" 2>&1 >/dev/null) || unfixable_exit=$?
+if [ "$unfixable_exit" -eq 2 ]; then
+  ok "Stop hook autofix — unfixable MD040 still exits 2 after fix attempt"
+else
+  fail_test "Stop hook autofix — unfixable MD040: expected exit 2, got $unfixable_exit"
+fi
+if echo "$unfixable_stderr" | grep -q "MD040"; then
+  ok "Stop hook autofix — MD040 error present in stderr after failed fix attempt"
+else
+  fail_test "Stop hook autofix — MD040 missing from stderr"
+fi
+
+# ---------------------------------------------------------------------------
+# PostToolUse if-gate (Bug 2)
+# The old '|| true' swallowed mdlint.sh's exit 2 for unfixable issues.
+# The new 'if'-based gating must let exit 2 propagate for .md files while
+# still exiting 0 cleanly for non-.md files.
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- PostToolUse if-gate (Bug 2) ---"
+
+run_if_gate() {
+  local payload="$1"
+  (
+    input=$(printf '%s' "$payload")
+    if printf '%s' "$input" | jq -e '(.tool_input.file_path // "") | endswith(".md")' >/dev/null 2>&1; then
+      printf '%s' "$input" | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK"
+    fi
+  )
+}
+
+tmp_md_gate=$(mktemp_md)
+printf '# Title\n\n```\ncode\n```\n' > "$tmp_md_gate"
+gate_payload=$(printf '{"tool_input":{"file_path":"%s"}}' "$tmp_md_gate")
+run_if_gate "$gate_payload" >/dev/null 2>&1
+gate_exit=$?
+if [ "$gate_exit" -eq 2 ]; then
+  ok "PostToolUse if-gate — exit 2 from mdlint.sh propagates to caller (unfixable MD040)"
+else
+  fail_test "PostToolUse if-gate — expected exit 2, got $gate_exit; exit code may be swallowed"
+fi
+
+tmp_txt_gate=$(mktemp /tmp/test-mdlint-XXXXXX)
+printf 'not markdown\n' > "$tmp_txt_gate"
+txt_payload=$(printf '{"tool_input":{"file_path":"%s"}}' "$tmp_txt_gate")
+run_if_gate "$txt_payload" >/dev/null 2>&1
+txt_exit=$?
+if [ "$txt_exit" -eq 0 ]; then
+  ok "PostToolUse if-gate — non-.md file exits 0 cleanly (no false positive)"
+else
+  fail_test "PostToolUse if-gate — non-.md should exit 0, got $txt_exit"
+fi
+
 # --- Summary ---
 echo ""
 echo "Results: $pass passed, $fail failed"
