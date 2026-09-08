@@ -20,6 +20,10 @@ Scans all git-modified `.md` files when the session ends. Runs the same auto-fix
 
 Run `bash scripts/mdlint-check.sh --help` for details.
 
+## Known normalizations
+
+Prettier rewrites single emphasis `*x*` to `_x_`; this is prettier's markdown printer, has no option, and is accepted — rendered output is identical.
+
 ## Installation
 
 Enable the plugin in your Claude Code settings:
@@ -53,7 +57,8 @@ The bundled `config/.markdownlint.json` enables:
 And disables:
 
 - MD013: line length (no limit enforced)
+- MD018: no space after hash on atx heading (a bare `#NNN` like `#463` is a paragraph, not a heading — fixing it would change document semantics)
 - MD033: inline HTML (needed for some markdown features)
 - MD041: first line heading (not every file starts with a heading)
 
-To customize, place a `.markdownlint.json` in your project root or `~/.markdownlint.json` in your home directory — these override the plugin default. To change the plugin default itself, edit `config/.markdownlint.json` in the plugin directory.
+To customize, place a `.markdownlint.json` in your project root or `~/.markdownlint.json` in your home directory — these override the plugin default. Resolution is project → `$HOME` → plugin default, and whichever file wins is used whole, not merged with the plugin config — so a rule you disabled in the plugin default (like MD018, see above) must also be disabled in any project or `$HOME` override, or it comes back. To change the plugin default itself, edit `config/.markdownlint.json` in the plugin directory.

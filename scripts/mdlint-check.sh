@@ -55,8 +55,8 @@ while IFS= read -r f; do
     # Auto-fix first so bg sessions (no PostToolUse) still get formatted.
     run_autofix "$f" "$LINT_CONFIG"
     if command -v markdownlint-cli2 &>/dev/null; then
-      out=$(markdownlint-cli2 --config "$LINT_CONFIG" "$f" 2>&1) || true
-      if [[ "$out" == *"error(s)"* && "$out" != *"0 error(s)"* ]]; then
+      out=$(markdownlint-cli2 --config "$LINT_CONFIG" "$f" 2>&1) && f_lint_exit=0 || f_lint_exit=$?
+      if [[ $f_lint_exit -ne 0 ]]; then
         file_errors=$(echo "$out" | grep "error MD" || true)
         if [[ -n "$file_errors" ]]; then
           errors="$errors$file_errors"$'\n'

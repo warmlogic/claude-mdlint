@@ -418,6 +418,42 @@ else
   fail_test "Stop hook fix-then-lint — file not modified; autofix may not run before lint"
 fi
 
+# ---------------------------------------------------------------------------
+# mdlint.sh — semantics-preserving fixture
+# The hook must never change document MEANING: a bare "#NNN" line is a
+# paragraph (no space after '#'), not an ATX heading (MD018 --fix would
+# insert one and turn it into a real heading), and a fenced code block in a
+# language prettier recognizes must not be reformatted by that language's
+# printer (embeddedLanguageFormatting must be off). Round-trip the fixture
+# through the real hook and assert it comes out byte-identical.
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- mdlint.sh: semantics-preserving fixture ---"
+
+# Source fixture is ".in" (non-.md) so the mdlint hook never touches the
+# committed copy; the test copies it to a real .md path before piping it
+# through the hook, then asserts the .md came out byte-identical to the .in.
+#
+# Config resolution is project .markdownlint.json -> $HOME/.markdownlint.json
+# -> plugin config (config/.markdownlint.json), no merge. This test must
+# exercise the PLUGIN's own config, not whatever the operator happens to have
+# in their real $HOME or project dir, so it runs with a throwaway HOME and an
+# empty CLAUDE_PROJECT_DIR — neither can shadow the plugin config.
+fixture_src="$SCRIPT_DIR/fixtures/semantics-preserved.md.in"
+tmp_semantics=$(mktemp_md)
+cp "$fixture_src" "$tmp_semantics"
+tmp_home=$(mktemp -d)
+tmp_project_dir=$(mktemp -d)
+printf '{"tool_input":{"file_path":"%s"}}' "$tmp_semantics" | \
+  HOME="$tmp_home" CLAUDE_PROJECT_DIR="$tmp_project_dir" \
+  CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" >/dev/null 2>&1
+if cmp -s "$fixture_src" "$tmp_semantics"; then
+  ok "semantics-preserved fixture — byte-identical after the hook (no #NNN-to-heading, no fenced-code reformat)"
+else
+  fail_test "semantics-preserved fixture — hook changed file content; diff:"
+  diff "$fixture_src" "$tmp_semantics" || true
+fi
+
 # --- Summary ---
 echo ""
 echo "Results: $pass passed, $fail failed"
