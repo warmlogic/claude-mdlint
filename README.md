@@ -61,4 +61,4 @@ And disables:
 - MD033: inline HTML (needed for some markdown features)
 - MD041: first line heading (not every file starts with a heading)
 
-To customize, place a `.markdownlint.json` in your project root or `~/.markdownlint.json` in your home directory — these override the plugin default. To change the plugin default itself, edit `config/.markdownlint.json` in the plugin directory.
+To customize, place a `.markdownlint.json` in your project root or `~/.markdownlint.json` in your home directory — these override the plugin default. Resolution is project → `$HOME` → plugin default, and whichever file wins is used whole, not merged with the plugin config — so a rule you disabled in the plugin default (like MD018, see above) must also be disabled in any project or `$HOME` override, or it comes back. To change the plugin default itself, edit `config/.markdownlint.json` in the plugin directory.
