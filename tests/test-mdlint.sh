@@ -430,7 +430,10 @@ fi
 echo ""
 echo "--- mdlint.sh: semantics-preserving fixture ---"
 
-fixture_src="$SCRIPT_DIR/fixtures/semantics-preserved.md"
+# Source fixture is ".in" (non-.md) so the mdlint hook never touches the
+# committed copy; the test copies it to a real .md path before piping it
+# through the hook, then asserts the .md came out byte-identical to the .in.
+fixture_src="$SCRIPT_DIR/fixtures/semantics-preserved.md.in"
 tmp_semantics=$(mktemp_md)
 cp "$fixture_src" "$tmp_semantics"
 printf '{"tool_input":{"file_path":"%s"}}' "$tmp_semantics" | \
