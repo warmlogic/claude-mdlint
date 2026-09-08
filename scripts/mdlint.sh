@@ -50,8 +50,8 @@ run_autofix "$file_path" "$LINT_CONFIG"
 
 # Step 3: Report any remaining unfixable issues
 if command -v markdownlint-cli2 &>/dev/null; then
-  output=$(markdownlint-cli2 --config "$LINT_CONFIG" "$file_path" 2>&1) || true
-  if [[ -n "$output" && "$output" == *"error(s)"* && "$output" != *"0 error(s)"* ]]; then
+  output=$(markdownlint-cli2 --config "$LINT_CONFIG" "$file_path" 2>&1) && lint_exit=0 || lint_exit=$?
+  if [[ $lint_exit -ne 0 ]]; then
     errors=$(echo "$output" | grep "error MD" || true)
     if [[ -n "$errors" ]]; then
       {
