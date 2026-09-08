@@ -418,6 +418,30 @@ else
   fail_test "Stop hook fix-then-lint — file not modified; autofix may not run before lint"
 fi
 
+# ---------------------------------------------------------------------------
+# mdlint.sh — semantics-preserving fixture
+# The hook must never change document MEANING: a bare "#NNN" line is a
+# paragraph (no space after '#'), not an ATX heading (MD018 --fix would
+# insert one and turn it into a real heading), and a fenced code block in a
+# language prettier recognizes must not be reformatted by that language's
+# printer (embeddedLanguageFormatting must be off). Round-trip the fixture
+# through the real hook and assert it comes out byte-identical.
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- mdlint.sh: semantics-preserving fixture ---"
+
+fixture_src="$SCRIPT_DIR/fixtures/semantics-preserved.md"
+tmp_semantics=$(mktemp_md)
+cp "$fixture_src" "$tmp_semantics"
+printf '{"tool_input":{"file_path":"%s"}}' "$tmp_semantics" | \
+  CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" >/dev/null 2>&1
+if cmp -s "$fixture_src" "$tmp_semantics"; then
+  ok "semantics-preserved fixture — byte-identical after the hook (no #NNN-to-heading, no fenced-code reformat)"
+else
+  fail_test "semantics-preserved fixture — hook changed file content; diff:"
+  diff "$fixture_src" "$tmp_semantics" || true
+fi
+
 # --- Summary ---
 echo ""
 echo "Results: $pass passed, $fail failed"
