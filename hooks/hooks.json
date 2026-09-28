@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "input=$(cat); if printf '%s' \"$input\" | jq -e '(.tool_input.file_path // \"\") | endswith(\".md\")' >/dev/null 2>&1; then printf '%s' \"$input\" | bash ${CLAUDE_PLUGIN_ROOT}/scripts/mdlint.sh; fi"
+            "command": "input=$(cat); if printf '%s' \"$input\" | jq -e '(.tool_input.file_path // \"\") | endswith(\".md\")' >/dev/null 2>&1; then printf '%s' \"$input\" | bash \"${CLAUDE_PLUGIN_ROOT}/scripts/mdlint.sh\"; fi"
           }
         ]
       }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/mdlint-check.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/mdlint-check.sh\""
           }
         ]
       }
