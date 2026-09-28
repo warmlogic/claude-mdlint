@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Test suite for mdlint.sh and mdlint-check.sh
-# Run from repo root: bash plugins/mdlint/tests/test-mdlint.sh
+# Run from repo root: bash tests/test-mdlint.sh
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
