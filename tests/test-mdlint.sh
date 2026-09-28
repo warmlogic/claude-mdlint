@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Test suite for mdlint.sh and mdlint-check.sh
-# Run from repo root: bash plugins/mdlint/tests/test-mdlint.sh
+# Run from repo root: bash tests/test-mdlint.sh
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -373,6 +373,45 @@ if [ "$txt_hjson_exit" -eq 0 ]; then
   ok "hooks.json command — non-.md input exits 0 cleanly"
 else
   fail_test "hooks.json command — non-.md should exit 0, got $txt_hjson_exit"
+fi
+
+# ---------------------------------------------------------------------------
+# hooks.json commands under a plugin root containing a space
+# Both hook commands must quote ${CLAUDE_PLUGIN_ROOT}; unquoted, bash
+# word-splits the script path and neither hook runs. Copy the plugin into a
+# spaced directory and execute both actual command strings from there.
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- hooks.json commands: plugin root with a space ---"
+
+spaced_root="$(mktemp -d)/plugin root"
+mkdir -p "$spaced_root"
+cp -R "$PLUGIN_ROOT/scripts" "$PLUGIN_ROOT/config" "$PLUGIN_ROOT/hooks" "$spaced_root/"
+post_cmd=$(jq -r '.hooks.PostToolUse[0].hooks[0].command' "$spaced_root/hooks/hooks.json")
+stop_cmd=$(jq -r '.hooks.Stop[0].hooks[0].command' "$spaced_root/hooks/hooks.json")
+
+tmp_md_spaced=$(mktemp_md)
+printf '# Title\n\n```\ncode\n```\n' > "$tmp_md_spaced"
+spaced_exit=0
+printf '{"tool_input":{"file_path":"%s"}}' "$tmp_md_spaced" | \
+  CLAUDE_PLUGIN_ROOT="$spaced_root" bash -c "$post_cmd" >/dev/null 2>&1 || spaced_exit=$?
+if [ "$spaced_exit" -eq 2 ]; then
+  ok "hooks.json PostToolUse command — runs from a spaced plugin root (exit 2 for MD040)"
+else
+  fail_test "hooks.json PostToolUse command — spaced plugin root: expected exit 2, got $spaced_exit (unquoted \${CLAUDE_PLUGIN_ROOT}?)"
+fi
+
+tmp_repo=$(setup_git_repo)
+printf '# Title\nText right after heading.\n' > "$tmp_repo/spaced.md"
+git -C "$tmp_repo" add spaced.md
+before_spaced=$(cat "$tmp_repo/spaced.md")
+stop_spaced_exit=0
+(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$spaced_root" bash -c "$stop_cmd") >/dev/null 2>&1 || stop_spaced_exit=$?
+after_spaced=$(cat "$tmp_repo/spaced.md")
+if [ "$stop_spaced_exit" -eq 0 ] && [ "$before_spaced" != "$after_spaced" ]; then
+  ok "hooks.json Stop command — runs from a spaced plugin root (MD022 auto-fixed, exit 0)"
+else
+  fail_test "hooks.json Stop command — spaced plugin root: exit $stop_spaced_exit, file modified: $([ "$before_spaced" != "$after_spaced" ] && echo yes || echo no) (unquoted \${CLAUDE_PLUGIN_ROOT}?)"
 fi
 
 # ---------------------------------------------------------------------------
