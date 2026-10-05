@@ -3,7 +3,7 @@
 This is the canonical contributor guide, at the repo root. `.claude/CLAUDE.md` is a symlink to
 this file, so Claude Code loads the same content as project memory.
 
-Claude Code plugin that auto-formats and lints Markdown files. Two hooks share a common fix pass via a sourced helper; both live in `scripts/`.
+Claude Code plugin that auto-formats and lints Markdown files. One PostToolUse hook in `scripts/` formats edited `.md` files and never blocks the agent.
 
 ## Running tests
 
@@ -17,11 +17,9 @@ Tests use isolated `mktemp` git repos — they never touch the working tree.
 
 ```text
 scripts/
-  _autofix.sh        # shared: run_autofix(file, config) — sourced by both scripts below
-  mdlint.sh          # PostToolUse: prettier → markdownlint --fix → report unfixable → exit 2
-  mdlint-check.sh    # Stop: same fix pass (bg-session coverage), then lint → report unfixable
+  mdlint.sh          # PostToolUse: prettier → markdownlint --fix → leftover issues as additionalContext (always exit 0)
 hooks/
-  hooks.json         # hook registration: PostToolUse (Edit|Write|MultiEdit) + Stop
+  hooks.json         # hook registration: PostToolUse (Edit|Write|MultiEdit) only
 config/
   .markdownlint.json # bundled default lint config
 .claude-plugin/
@@ -30,10 +28,10 @@ config/
 
 ## Non-obvious design decisions
 
-- **PostToolUse fires in foreground sessions only; Stop fires in all sessions (including background/headless).** Both run the same autofix pass so bg sessions still get formatted. The shared `_autofix.sh` keeps them in sync and prevents drift.
-- **The PostToolUse hook command uses an `if`-gate, not `|| true`.** `|| true` swallows `mdlint.sh`'s intentional `exit 2`, preventing unfixable-issue feedback from reaching the model. The `if`-gate lets the exit code propagate for `.md` files while cleanly no-op'ing for non-`.md` edits.
-- **`_autofix.sh` is sourced, not executed.** Sourcing inherits the caller's PATH and `set -euo pipefail` without forking a subprocess.
-- **Config priority** (runtime): `$CLAUDE_PROJECT_DIR/.markdownlint.json` → `$HOME/.markdownlint.json` → `config/.markdownlint.json`. Projects and users override the bundled default; the bundled default is the final fallback.
+- **The hook never blocks.** Leftover issues go out as JSON on stdout (`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"..."}}`) with exit 0, so Claude sees them as context. There is no Stop hook: PostToolUse already formats every Write/Edit, and a Stop-time check could only duplicate it or block the agent. A missing `prettier` or `markdownlint-cli2` makes the hook a no-op.
+- **The PostToolUse hook command uses an `if`-gate** that runs `mdlint.sh` only for `.md` paths and cleanly no-ops for other edits.
+- **Config priority** (runtime): `$CLAUDE_PROJECT_DIR/.markdownlint.json` → `$HOME/.markdownlint.json` → `config/.markdownlint.json`. The winning file replaces the bundled default whole (no merge), so a personal or project file should start as a copy of the bundled one.
+- **Tools run from the edited file's directory, on its basename.** markdownlint-cli2 lets a config discovered from cwd override `--config` for a file outside cwd, and hooks run with cwd = the project dir, so running from the file's dir makes `--config` win everywhere. The report therefore shows the basename; the message header carries the full path.
 
 ## Unversioned
 
