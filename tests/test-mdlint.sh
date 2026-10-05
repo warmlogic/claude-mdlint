@@ -55,6 +55,8 @@ expect_exit() {
   if [ "$actual" -eq "$expected" ]; then ok "$label"; else fail_test "$label (expected exit $expected, got $actual)"; fi
 }
 
+command -v markdownlint-cli2 >/dev/null 2>&1 || { echo "FAIL: markdownlint-cli2 is required to run this suite"; exit 1; }
+
 echo "mdlint.sh test suite"
 echo "======================================="
 
@@ -145,41 +147,41 @@ fi
 
 # ---------------------------------------------------------------------------
 # mdlint.sh — markdownlint auto-fix
-# MD022 (blanks-around-headings) is auto-fixable. These tests verify that
+# MD026 (trailing heading punctuation) is auto-fixable by markdownlint only. These tests verify that
 # markdownlint --fix actually runs and modifies the file, not just exits 0.
 # ---------------------------------------------------------------------------
 echo ""
 echo "--- mdlint.sh: markdownlint auto-fix ---"
 
 tmp_md_fix=$(mktemp_md)
-printf '# Title\nText with no blank line after heading.\n' > "$tmp_md_fix"
+printf '# Title\n\n## Done!\n\nText.\n' > "$tmp_md_fix"   # MD026: prettier leaves it, only markdownlint --fix repairs it
 before=$(cat "$tmp_md_fix")
 printf '{"tool_input":{"file_path":"%s"}}' "$tmp_md_fix" | \
   CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" >/dev/null 2>&1
 after=$(cat "$tmp_md_fix")
 if [ "$before" != "$after" ]; then
-  ok "MD022 auto-fix — markdownlint adds blank line after heading, file content changed"
+  ok "MD026 auto-fix — markdownlint --fix strips trailing heading punctuation (prettier does not)"
 else
-  fail_test "MD022 auto-fix — file not modified; markdownlint --fix may not be running"
+  fail_test "MD026 auto-fix — file not modified; markdownlint --fix may not be running"
 fi
 
-# A file with both a fixable error (MD022) and an unfixable one (MD040) tests
+# A file with both a fixable error (MD026) and an unfixable one (MD040) tests
 # that the full pipeline runs: auto-fix applies what it can, then reports what
 # it can't, and exits 2 so Claude gets the remaining error.
 tmp_md_combo=$(mktemp_md)
-printf '# Title\nText right after heading.\n\n```\ncode\n```\n' > "$tmp_md_combo"
+printf '# Title\n\n## Done!\n\n```\ncode\n```\n' > "$tmp_md_combo"
 before=$(cat "$tmp_md_combo")
 printf '{"tool_input":{"file_path":"%s"}}' "$tmp_md_combo" | \
   CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" >/dev/null 2>&1
 combo_exit=$?
 after=$(cat "$tmp_md_combo")
 if [ "$combo_exit" -eq 0 ]; then
-  ok "fixable (MD022) + unfixable (MD040) — exits 0 although MD040 cannot be auto-fixed"
+  ok "fixable (MD026) + unfixable (MD040) — exits 0 although MD040 cannot be auto-fixed"
 else
   fail_test "fixable + unfixable — expected exit 0, got $combo_exit"
 fi
 if [ "$before" != "$after" ]; then
-  ok "fixable (MD022) + unfixable (MD040) — file modified because MD022 was auto-fixed before reporting"
+  ok "fixable (MD026) + unfixable (MD040) — file modified because MD026 was auto-fixed before reporting"
 else
   fail_test "fixable + unfixable — file not modified; auto-fix may not have run before error report"
 fi
@@ -383,6 +385,18 @@ e_out=$(cd "$proj" && printf '{"tool_input":{"file_path":"%s"}}' "$tmp_e" | HOME
 tmp_e2=$(mktemp_md)
 printf '# Title\n\n**Bold heading**\n\nText.\n' > "$tmp_e2"
 e2_out=$(cd "$proj" && printf '{"tool_input":{"file_path":"%s"}}' "$tmp_e2" | HOME="$fake_home" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1)
+# Positive control: the same bold-heading fixture under an MD036-on config DOES produce a note,
+# so the empty outputs above mean the files were examined, not skipped.
+proj_on=$(mktemp -d)
+printf '{"MD036": true}\n' > "$proj_on/.markdownlint.json"
+tmp_e3=$(mktemp_md)
+printf '# Title\n\n**Bold heading**\n\nText.\n' > "$tmp_e3"
+e3_out=$(cd "$proj_on" && printf '{"tool_input":{"file_path":"%s"}}' "$tmp_e3" | HOME="$fake_home" CLAUDE_PROJECT_DIR="$proj_on" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1)
+if echo "$e3_out" | grep -q "MD036"; then
+  ok "config precedence — positive control: MD036-on project config reports MD036"
+else
+  fail_test "config precedence — positive control produced no MD036 note: $e3_out"
+fi
 if [ -z "$e_out" ] && [ -z "$e2_out" ]; then
   ok "config precedence — project config wins; \$HOME/.markdownlint.json is ignored"
 else
