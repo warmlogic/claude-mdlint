@@ -375,32 +375,39 @@ else
   fail_test "config ignored outside cwd: $d_out"
 fi
 
-# (e) A project .markdownlint.json wins over the plugin default; ~/.markdownlint.json is not consulted.
-proj=$(mktemp -d); fake_home=$(mktemp -d)
-printf '{"MD036": true, "MD040": false}\n' > "$proj/.markdownlint.json"
-printf '{"MD036": true}\n' > "$fake_home/.markdownlint.json"
-tmp_e=$(mktemp_md)
-printf '# Title\n\n```\ncode\n```\n' > "$tmp_e"
-e_out=$(cd "$proj" && printf '{"tool_input":{"file_path":"%s"}}' "$tmp_e" | HOME="$fake_home" CLAUDE_PROJECT_DIR="$proj" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1)
-tmp_e2=$(mktemp_md)
-printf '# Title\n\n**Bold heading**\n\nText.\n' > "$tmp_e2"
-e2_out=$(cd "$proj" && printf '{"tool_input":{"file_path":"%s"}}' "$tmp_e2" | HOME="$fake_home" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1)
-# Positive control: the same bold-heading fixture under an MD036-on config DOES produce a note,
-# so the empty outputs above mean the files were examined, not skipped.
-proj_on=$(mktemp -d)
-printf '{"MD036": true}\n' > "$proj_on/.markdownlint.json"
-tmp_e3=$(mktemp_md)
-printf '# Title\n\n**Bold heading**\n\nText.\n' > "$tmp_e3"
-e3_out=$(cd "$proj_on" && printf '{"tool_input":{"file_path":"%s"}}' "$tmp_e3" | HOME="$fake_home" CLAUDE_PROJECT_DIR="$proj_on" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1)
-if echo "$e3_out" | grep -q "MD036"; then
-  ok "config precedence — positive control: MD036-on project config reports MD036"
+# (e) Precedence: project > $HOME > plugin default. Fake HOMEs only; the real one is never read.
+bold_note() {  # bold_note <home> <project_dir or ""> -> hook output for a bold-as-heading file
+  local f; f=$(mktemp_md)
+  printf '# Title\n\n**Bold heading**\n\nText.\n' > "$f"
+  printf '{"tool_input":{"file_path":"%s"}}' "$f" | HOME="$1" CLAUDE_PROJECT_DIR="$2" \
+    CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1
+}
+empty_home=$(mktemp -d)
+home_on=$(mktemp -d);  printf '{"MD036": true}\n'  > "$home_on/.markdownlint.json"
+proj_off=$(mktemp -d); printf '{"MD036": false}\n' > "$proj_off/.markdownlint.json"
+proj_on=$(mktemp -d);  printf '{"MD036": true}\n'  > "$proj_on/.markdownlint.json"
+
+plugin_out=$(bold_note "$empty_home" "")
+home_out=$(bold_note "$home_on" "")
+proj_beats_home_out=$(bold_note "$home_on" "$proj_off")
+proj_out=$(bold_note "$empty_home" "$proj_on")
+
+# Positive controls: an MD036-on config (home or project) DOES report, so the empty outputs mean
+# the file was examined under a config that turns MD036 off, not skipped.
+if echo "$home_out" | grep -q "MD036" && echo "$proj_out" | grep -q "MD036"; then
+  ok "config precedence — positive control: MD036-on home and project configs report MD036"
 else
-  fail_test "config precedence — positive control produced no MD036 note: $e3_out"
+  fail_test "config precedence — home beats plugin / project config: home=[$home_out] project=[$proj_out]"
 fi
-if [ -z "$e_out" ] && [ -z "$e2_out" ]; then
-  ok "config precedence — project config wins; \$HOME/.markdownlint.json is ignored"
+if [ -z "$plugin_out" ]; then
+  ok "config precedence — plugin default applies when neither project nor home config exists"
 else
-  fail_test "config precedence: project=[$e_out] home=[$e2_out]"
+  fail_test "config precedence — plugin default: $plugin_out"
+fi
+if [ -z "$proj_beats_home_out" ]; then
+  ok "config precedence — project config beats \$HOME config"
+else
+  fail_test "config precedence — project did not beat home: $proj_beats_home_out"
 fi
 
 # --- Summary ---

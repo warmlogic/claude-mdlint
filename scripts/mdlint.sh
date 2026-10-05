@@ -33,9 +33,11 @@ fi
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
-# Config priority: project > plugin default (absolute, since we run from the file's dir).
+# Config priority: project > user home > plugin default (absolute, since we run from the file's dir).
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "$CLAUDE_PROJECT_DIR/.markdownlint.json" ]; then
   LINT_CONFIG="$CLAUDE_PROJECT_DIR/.markdownlint.json"
+elif [ -f "$HOME/.markdownlint.json" ]; then
+  LINT_CONFIG="$HOME/.markdownlint.json"
 else
   LINT_CONFIG="$PLUGIN_ROOT/config/.markdownlint.json"
 fi

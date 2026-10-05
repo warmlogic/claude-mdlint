@@ -18,7 +18,7 @@ Run `bash scripts/mdlint.sh --help` for the full check list.
 
 ## Lint config
 
-The bundled default (`config/.markdownlint.json`) keeps markdownlint's default rules and turns off the ones that cannot be auto-fixed and are mostly noise in agent-written docs (MD013, MD018, MD025, MD033, MD036, MD041, MD059), limits MD024 to sibling headings, and aligns tables (MD060). Override it with `$CLAUDE_PROJECT_DIR/.markdownlint.json`.
+The bundled default (`config/.markdownlint.json`) keeps markdownlint's default rules and turns off the ones that cannot be auto-fixed and are mostly noise in agent-written docs (MD013, MD018, MD025, MD033, MD036, MD041, MD059), limits MD024 to sibling headings, and aligns tables (MD060). Override it with `$CLAUDE_PROJECT_DIR/.markdownlint.json` or `$HOME/.markdownlint.json`.
 
 Rules that can still leave a note after the fix pass: MD001, MD003, MD024, MD028, MD040, MD042, MD045, MD046, MD051, MD052, MD056.
 
@@ -63,4 +63,4 @@ And disables:
 - MD033: inline HTML (needed for some markdown features)
 - MD041: first line heading (not every file starts with a heading)
 
-To customize, place a `.markdownlint.json` in your project root — it overrides the plugin default. Resolution is project → plugin default, and whichever file wins is used whole, not merged with the plugin config — so a rule you disabled in the plugin default (like MD018, see above) must also be disabled in the project override, or it comes back. `$HOME/.markdownlint.json` is not consulted. To change the plugin default itself, edit `config/.markdownlint.json` in the plugin directory.
+To customize, place a `.markdownlint.json` in your project root, or `~/.markdownlint.json` as a personal default across projects. Resolution is project → `$HOME` → plugin default, and the winning file replaces the plugin default whole rather than merging with it — so start a personal or project file as a copy of `config/.markdownlint.json` and change only what you want; a rule the plugin default disables (like MD018, see above) comes back unless the copy keeps it off. To change the plugin default itself, edit `config/.markdownlint.json` in the plugin directory.
