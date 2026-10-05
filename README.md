@@ -1,6 +1,6 @@
 # mdlint
 
-Auto-format and lint markdown files written by Claude Code. Two hooks work together: one fires on every Write/Edit, the other runs at session end as a safety net.
+Auto-format markdown files written by Claude Code. One hook, and it never blocks the agent.
 
 ## How it works
 
@@ -10,15 +10,17 @@ Runs immediately after Claude writes or edits a `.md` file:
 
 1. Prettier formats tables, whitespace, list indentation
 2. Markdownlint auto-fixes heading structure, blank lines, code fences
-3. Remaining unfixable issues are reported back to Claude with fix hints
+3. Issues markdownlint cannot auto-fix are passed to Claude as informational context (`hookSpecificOutput.additionalContext`, exit 0), with a fix hint for the common ones
+
+A file that is fixed cleanly produces no output. The hook always exits 0 and does nothing if prettier or markdownlint is missing. There is no Stop hook.
 
 Run `bash scripts/mdlint.sh --help` for the full check list.
 
-### Stop — `scripts/mdlint-check.sh` (triggered at session end)
+## Lint config
 
-Lints only the `.md` files this session edited, and reports any unfixed issues back to Claude. The PostToolUse hook records each edited path under the hook input's `session_id` (`$TMPDIR/mdlint-sessions/<session_id>.list`); Stop reads that list, never rewrites a file, and deletes the list when it exits 0. Files modified by other sessions or other tools are out of scope, and a session with no recorded edits is a no-op.
+The bundled default (`config/.markdownlint.json`) keeps markdownlint's default rules and turns off the ones that cannot be auto-fixed and are mostly noise in agent-written docs (MD013, MD018, MD025, MD033, MD036, MD041, MD059), limits MD024 to sibling headings, and aligns tables (MD060). Override it with `$CLAUDE_PROJECT_DIR/.markdownlint.json` or `$HOME/.markdownlint.json`.
 
-Run `bash scripts/mdlint-check.sh --help` for details.
+Rules that can still leave a note after the fix pass: MD001, MD003, MD024, MD028, MD040, MD042, MD045, MD046, MD051, MD052, MD056.
 
 ## Known normalizations
 

@@ -3,7 +3,7 @@
 This is the canonical contributor guide, at the repo root. `.claude/CLAUDE.md` is a symlink to
 this file, so Claude Code loads the same content as project memory.
 
-Claude Code plugin that auto-formats and lints Markdown files. Two hooks live in `scripts/`; PostToolUse formats and records edited paths, Stop lints them.
+Claude Code plugin that auto-formats and lints Markdown files. One PostToolUse hook in `scripts/` formats edited `.md` files and never blocks the agent.
 
 ## Running tests
 
@@ -17,11 +17,9 @@ Tests use isolated `mktemp` git repos — they never touch the working tree.
 
 ```text
 scripts/
-  _autofix.sh        # run_autofix(file, config) — sourced by mdlint.sh
-  mdlint.sh          # PostToolUse: prettier → markdownlint --fix → report unfixable → exit 2; records the path per session_id
-  mdlint-check.sh    # Stop: lint-only over the session's recorded paths → report unfixable → exit 2
+  mdlint.sh          # PostToolUse: prettier → markdownlint --fix → leftover issues as additionalContext (always exit 0)
 hooks/
-  hooks.json         # hook registration: PostToolUse (Edit|Write|MultiEdit) + Stop
+  hooks.json         # hook registration: PostToolUse (Edit|Write|MultiEdit) only
 config/
   .markdownlint.json # bundled default lint config
 .claude-plugin/
@@ -30,9 +28,8 @@ config/
 
 ## Non-obvious design decisions
 
-- **Stop is scoped to the session's own edits.** PostToolUse appends each edited `.md` path to `$TMPDIR/mdlint-sessions/<session_id>.list` (`session_id` comes from the hook's stdin JSON); Stop lints only the paths on its own session's list that still exist, never rewrites, and deletes the list on exit 0. It does not scan the git tree, so a session whose cwd sits in another agent's worktree neither touches nor reports that agent's files. A session with no PostToolUse edits (for example a background session where that hook does not fire) has no list and Stop is a no-op.
-- **The PostToolUse hook command uses an `if`-gate, not `|| true`.** `|| true` swallows `mdlint.sh`'s intentional `exit 2`, preventing unfixable-issue feedback from reaching the model. The `if`-gate lets the exit code propagate for `.md` files while cleanly no-op'ing for non-`.md` edits.
-- **`_autofix.sh` is sourced, not executed.** Sourcing inherits the caller's PATH and `set -euo pipefail` without forking a subprocess.
+- **The hook never blocks.** Leftover issues go out as JSON on stdout (`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"..."}}`) with exit 0, so Claude sees them as context. There is no Stop hook: PostToolUse already formats every Write/Edit, and a Stop-time check could only duplicate it or block the agent. A missing `prettier` or `markdownlint-cli2` makes the hook a no-op.
+- **The PostToolUse hook command uses an `if`-gate** that runs `mdlint.sh` only for `.md` paths and cleanly no-ops for other edits.
 - **Config priority** (runtime): `$CLAUDE_PROJECT_DIR/.markdownlint.json` → `$HOME/.markdownlint.json` → `config/.markdownlint.json`. Projects and users override the bundled default; the bundled default is the final fallback.
 
 ## Unversioned

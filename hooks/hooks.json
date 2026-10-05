@@ -1,5 +1,5 @@
 {
-  "description": "Auto-format markdown on Write/Edit; final lint check on Stop",
+  "description": "Auto-format markdown on Write/Edit; leftover lint issues are reported as non-blocking context",
   "hooks": {
     "PostToolUse": [
       {
@@ -8,17 +8,6 @@
           {
             "type": "command",
             "command": "input=$(cat); if printf '%s' \"$input\" | jq -e '(.tool_input.file_path // \"\") | endswith(\".md\")' >/dev/null 2>&1; then printf '%s' \"$input\" | bash \"${CLAUDE_PLUGIN_ROOT}/scripts/mdlint.sh\"; fi"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/mdlint-check.sh\""
           }
         ]
       }
