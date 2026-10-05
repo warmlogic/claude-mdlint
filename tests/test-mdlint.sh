@@ -368,7 +368,7 @@ tmp_d=$(mktemp_md)
 printf '# Title\n\n**Bold heading**\n\nText.\n' > "$tmp_d"
 other_cwd=$(mktemp -d)
 printf '{"MD036": true}\n' > "$other_cwd/.markdownlint.json"   # a cwd config that must not shadow --config
-d_out=$(cd "$other_cwd" && printf '{"tool_input":{"file_path":"%s"}}' "$tmp_d" | HOME="$other_cwd" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1)
+d_out=$(cd "$other_cwd" && printf '{"tool_input":{"file_path":"%s"}}' "$tmp_d" | HOME="$(mktemp -d)" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1)
 if [ -z "$d_out" ]; then
   ok "config applies to a file outside cwd — no MD036 note"
 else
