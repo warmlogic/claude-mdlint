@@ -1,24 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#@check 1  scan    Find all modified/staged .md files in the git working tree
-#@check 2  fix     Auto-fix each file: prettier + markdownlint --fix (bg-session coverage)
-#@check 3  lint    Re-lint each file, collect genuinely-unfixable errors
-#@check 4  report  Surface up to 10 issues as a final safety net
+#@check 1  scan    Read the .md paths this session edited (recorded by the PostToolUse hook)
+#@check 2  lint    Lint each path that still exists, collect unfixed errors
+#@check 3  report  Surface up to 10 issues as a final safety net; drop the list on a clean exit
 
 # --- --help: print check summary from #@check tags in this script ---
 if [ "${1:-}" = "--help" ]; then
-  echo "mdlint-check — Stop hook: auto-fix then lint modified .md files"
+  echo "mdlint-check — Stop hook: lint the .md files this session edited"
   echo ""
   echo "Pipeline:"
   grep '^#@check' "$0" | sed 's/^#@check /  /'
   echo ""
-  echo "Requires: markdownlint-cli2, git (prettier optional)"
+  echo "Requires: markdownlint-cli2, jq"
   exit 0
 fi
 
-# Stop hook: final markdown lint check on all modified .md files
-# Safety net — catches anything missed during the session
+# Stop hook: final markdown lint check on the .md files this session edited.
+# Lint only, never rewrites; files the session did not edit are out of scope.
 
 # CC hooks run in a non-login shell — /opt/homebrew/bin isn't on PATH by default
 for _d in /opt/homebrew/bin /usr/local/bin; do
@@ -37,39 +36,31 @@ else
   LINT_CONFIG="$PLUGIN_ROOT/config/.markdownlint.json"
 fi
 
-# shellcheck source=./_autofix.sh
-source "$PLUGIN_ROOT/scripts/_autofix.sh"
-
-# Find modified/staged .md files
-files=$(git diff --name-only --diff-filter=ACMR HEAD 2>/dev/null | grep '\.md$' || true)
-staged=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null | grep '\.md$' || true)
-all_files=$(echo -e "$files\n$staged" | sort -u | grep -v '^$' || true)
-
-if [[ -z "$all_files" ]]; then
+# Paths this session edited (deduplicated; the list is keyed by session_id)
+session_id=$(jq -r '.session_id // ""')
+list="${TMPDIR:-/tmp}/mdlint-sessions/$session_id.list"
+if [[ ! "$session_id" =~ ^[A-Za-z0-9_-]+$ ]] || [[ ! -s "$list" ]]; then
   exit 0
 fi
 
 errors=""
-while IFS= read -r f; do
-  if [[ -f "$f" ]]; then
-    # Auto-fix first so bg sessions (no PostToolUse) still get formatted.
-    run_autofix "$f" "$LINT_CONFIG"
-    if command -v markdownlint-cli2 &>/dev/null; then
-      out=$(markdownlint-cli2 --config "$LINT_CONFIG" "$f" 2>&1) && f_lint_exit=0 || f_lint_exit=$?
-      if [[ $f_lint_exit -ne 0 ]]; then
-        file_errors=$(echo "$out" | grep "error MD" || true)
-        if [[ -n "$file_errors" ]]; then
-          errors="$errors$file_errors"$'\n'
-        fi
+if command -v markdownlint-cli2 &>/dev/null; then
+  while IFS= read -r f; do
+    [[ -f "$f" ]] || continue
+    out=$(markdownlint-cli2 --config "$LINT_CONFIG" "$f" 2>&1) && f_lint_exit=0 || f_lint_exit=$?
+    if [[ $f_lint_exit -ne 0 ]]; then
+      file_errors=$(echo "$out" | grep "error MD" || true)
+      if [[ -n "$file_errors" ]]; then
+        errors="$errors$file_errors"$'\n'
       fi
     fi
-  fi
-done <<< "$all_files"
+  done < <(sort -u "$list")
+fi
 
 if [[ -n "$errors" ]]; then
   count=$(echo "$errors" | grep -c "error MD" || true)
   {
-    echo "MARKDOWN LINT — $count unfixed issue(s) in modified files:"
+    echo "MARKDOWN LINT — $count unfixed issue(s) in files edited this session:"
     echo "$errors" | head -10
     if [[ $count -gt 10 ]]; then
       echo "  ... and $((count - 10)) more"
@@ -79,4 +70,5 @@ if [[ -n "$errors" ]]; then
   exit 2
 fi
 
+rm -f "$list"
 exit 0

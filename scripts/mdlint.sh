@@ -25,10 +25,18 @@ fi
 # Pipeline: prettier (formatting) → markdownlint --fix (structural) → report unfixable
 
 # Early exit: read file_path first, skip non-markdown before any other work
-file_path=$(jq -r '.tool_input.file_path // ""')
+input=$(cat)
+file_path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // ""')
 
 if [[ "$file_path" != *.md ]] || [[ ! -f "$file_path" ]]; then
   exit 0
+fi
+
+# Record the path under this session so the Stop hook lints only what the session edited.
+session_id=$(printf '%s' "$input" | jq -r '.session_id // ""')
+if [[ "$session_id" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  mkdir -p "${TMPDIR:-/tmp}/mdlint-sessions"
+  printf '%s\n' "$file_path" >> "${TMPDIR:-/tmp}/mdlint-sessions/$session_id.list"
 fi
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"

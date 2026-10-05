@@ -8,6 +8,10 @@ HOOK="$SCRIPT_DIR/../scripts/mdlint.sh"
 CHECK_HOOK="$SCRIPT_DIR/../scripts/mdlint-check.sh"
 PLUGIN_ROOT="$SCRIPT_DIR/.."
 
+# Session lists live under TMPDIR; isolate them from the real ones.
+TMPDIR=$(mktemp -d)
+export TMPDIR
+
 pass=0
 fail=0
 tn=0
@@ -44,6 +48,10 @@ run_hook_minimal_path() {
     PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
     CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" >/dev/null 2>&1
 }
+
+# Stop-hook helpers: seed the session list for sid "stop", run Stop with that session_id.
+seed_stop() { mkdir -p "$TMPDIR/mdlint-sessions"; printf '%s\n' "$@" > "$TMPDIR/mdlint-sessions/stop.list"; }
+stop_payload() { printf '{"session_id":"stop"}'; }
 
 ok() { pass=$((pass+1)); tn=$((tn+1)); echo "  Test $tn ok: $1"; }
 fail_test() { fail=$((fail+1)); tn=$((tn+1)); echo "  Test $tn FAIL: $1"; }
@@ -186,49 +194,47 @@ fi
 
 # ---------------------------------------------------------------------------
 # mdlint-check.sh — Stop hook
-# mdlint-check.sh runs on Stop (end of session) and scans all modified/staged
-# .md files in the git working tree. Tests use an isolated temp git repo so
-# they don't interfere with or depend on the state of this repo.
+# mdlint-check.sh runs on Stop (end of turn) and lints the .md files on the
+# session's list. Tests use isolated temp repos and a throwaway TMPDIR.
 # ---------------------------------------------------------------------------
 echo ""
 echo "--- mdlint-check.sh: Stop hook ---"
 
-# No staged or unstaged .md changes → nothing to lint, exits 0 immediately.
+# No session list → nothing to lint, exits 0 immediately.
 tmp_repo=$(setup_git_repo)
-(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1
+(cd "$tmp_repo" && stop_payload | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1
 if [ $? -eq 0 ]; then
-  ok "no modified .md files in repo — exits 0, nothing to lint"
+  ok "no session list — exits 0, nothing to lint"
 else
-  fail_test "no modified .md files — expected exit 0"
+  fail_test "no session list — expected exit 0"
 fi
 
-# A staged .md with valid content → markdownlint finds no errors, exits 0.
+# A listed .md with valid content → markdownlint finds no errors, exits 0.
 tmp_repo=$(setup_git_repo)
 printf '# Title\n\nClean content.\n' > "$tmp_repo/test.md"
-git -C "$tmp_repo" add test.md
-(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1
+seed_stop "$tmp_repo/test.md"
+(cd "$tmp_repo" && stop_payload | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1
 if [ $? -eq 0 ]; then
-  ok "staged clean .md — markdownlint finds no errors, exits 0"
+  ok "listed clean .md — markdownlint finds no errors, exits 0"
 else
-  fail_test "staged clean .md — expected exit 0"
+  fail_test "listed clean .md — expected exit 0"
 fi
 
-# A staged .md with an unfixable MD040 error → auto-fix runs but can't fix it,
-# then lint exits 2 and reports to stderr.
+# A listed .md with an unfixable MD040 error → lint exits 2 and reports to stderr.
 tmp_repo=$(setup_git_repo)
 printf '# Title\n\n```\ncode\n```\n' > "$tmp_repo/test.md"
-git -C "$tmp_repo" add test.md
+seed_stop "$tmp_repo/test.md"
 check_exit=0
-check_stderr=$(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK" 2>&1 >/dev/null) || check_exit=$?
+check_stderr=$(cd "$tmp_repo" && stop_payload | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK" 2>&1 >/dev/null) || check_exit=$?
 if [ "$check_exit" -eq 2 ]; then
-  ok "staged .md with MD040 error — exits 2 to surface unfixed issue at session end"
+  ok "listed .md with MD040 error — exits 2 to surface unfixed issue at session end"
 else
-  fail_test "staged .md with MD040 error — expected exit 2, got $check_exit"
+  fail_test "listed .md with MD040 error — expected exit 2, got $check_exit"
 fi
 if echo "$check_stderr" | grep -q "MARKDOWN LINT"; then
-  ok "staged .md with MD040 error — 'MARKDOWN LINT' header present in stderr"
+  ok "listed .md with MD040 error — 'MARKDOWN LINT' header present in stderr"
 else
-  fail_test "staged .md with MD040 error — 'MARKDOWN LINT' header missing from stderr"
+  fail_test "listed .md with MD040 error — 'MARKDOWN LINT' header missing from stderr"
 fi
 
 # PATH regression for mdlint-check.sh. If PATH injection fails, markdownlint-cli2
@@ -236,8 +242,8 @@ fi
 # errors. Exit 2 here proves both that markdownlint-cli2 was found AND that it ran.
 tmp_repo=$(setup_git_repo)
 printf '# Title\n\n```\ncode\n```\n' > "$tmp_repo/test.md"
-git -C "$tmp_repo" add test.md
-(cd "$tmp_repo" && env -i HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" \
+seed_stop "$tmp_repo/test.md"
+(cd "$tmp_repo" && stop_payload | env -i HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" \
   PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
   CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1
 if [ $? -eq 2 ]; then
@@ -247,50 +253,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# mdlint-check.sh: Stop hook auto-fix (Bug 1)
-# After the fix, mdlint-check.sh must run the same prettier + markdownlint
-# --fix pass that mdlint.sh does, so background sessions (no PostToolUse)
-# still get formatted at Stop.
+# mdlint-check.sh: Stop never rewrites
+# Formatting belongs to the PostToolUse hook; Stop only lints, so a listed file
+# with fixable issues comes back unchanged.
 # ---------------------------------------------------------------------------
 echo ""
-echo "--- mdlint-check.sh: Stop hook auto-fix (Bug 1) ---"
+echo "--- mdlint-check.sh: Stop hook is lint-only ---"
 
-# A staged .md with ONLY a prettier-fixable issue (misaligned MD060 table)
-# should be auto-formatted by mdlint-check.sh and exit 0.
 tmp_repo=$(setup_git_repo)
-printf '| A | B |\n| --- | --- |\n| short | a much longer value here |\n' > "$tmp_repo/table.md"
-git -C "$tmp_repo" add table.md
-before_table=$(cat "$tmp_repo/table.md")
-fix_exit=0
-(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1 || fix_exit=$?
-after_table=$(cat "$tmp_repo/table.md")
-if [ "$before_table" != "$after_table" ]; then
-  ok "Stop hook autofix — misaligned table auto-formatted by mdlint-check.sh (bg-session fix)"
+printf '# Title\nText right after heading.\n' > "$tmp_repo/md022.md"
+seed_stop "$tmp_repo/md022.md"
+before_md022=$(cat "$tmp_repo/md022.md")
+(cd "$tmp_repo" && stop_payload | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1
+if [ "$before_md022" = "$(cat "$tmp_repo/md022.md")" ]; then
+  ok "Stop hook — listed file with a fixable issue is not rewritten"
 else
-  fail_test "Stop hook autofix — table not formatted; mdlint-check.sh does not run prettier"
-fi
-if [ "$fix_exit" -eq 0 ]; then
-  ok "Stop hook autofix — exits 0 after auto-fixing a prettier-only issue (no residual errors)"
-else
-  fail_test "Stop hook autofix — expected exit 0 after auto-fix, got $fix_exit"
-fi
-
-# A staged .md with a no-language fenced block (MD040, not auto-fixable) should
-# still exit 2 after the fix attempt, with the error reported in stderr.
-tmp_repo=$(setup_git_repo)
-printf '# Title\n\n```\ncode\n```\n' > "$tmp_repo/unfixable.md"
-git -C "$tmp_repo" add unfixable.md
-unfixable_exit=0
-unfixable_stderr=$(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK" 2>&1 >/dev/null) || unfixable_exit=$?
-if [ "$unfixable_exit" -eq 2 ]; then
-  ok "Stop hook autofix — unfixable MD040 still exits 2 after fix attempt"
-else
-  fail_test "Stop hook autofix — unfixable MD040: expected exit 2, got $unfixable_exit"
-fi
-if echo "$unfixable_stderr" | grep -q "MD040"; then
-  ok "Stop hook autofix — MD040 error present in stderr after failed fix attempt"
-else
-  fail_test "Stop hook autofix — MD040 missing from stderr"
+  fail_test "Stop hook — rewrote a file; Stop must only lint"
 fi
 
 # ---------------------------------------------------------------------------
@@ -402,59 +380,14 @@ else
 fi
 
 tmp_repo=$(setup_git_repo)
-printf '# Title\nText right after heading.\n' > "$tmp_repo/spaced.md"
-git -C "$tmp_repo" add spaced.md
-before_spaced=$(cat "$tmp_repo/spaced.md")
+printf '# Title\n\n```\ncode\n```\n' > "$tmp_repo/spaced.md"
+seed_stop "$tmp_repo/spaced.md"
 stop_spaced_exit=0
-(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$spaced_root" bash -c "$stop_cmd") >/dev/null 2>&1 || stop_spaced_exit=$?
-after_spaced=$(cat "$tmp_repo/spaced.md")
-if [ "$stop_spaced_exit" -eq 0 ] && [ "$before_spaced" != "$after_spaced" ]; then
-  ok "hooks.json Stop command — runs from a spaced plugin root (MD022 auto-fixed, exit 0)"
+(cd "$tmp_repo" && stop_payload | CLAUDE_PLUGIN_ROOT="$spaced_root" bash -c "$stop_cmd") >/dev/null 2>&1 || stop_spaced_exit=$?
+if [ "$stop_spaced_exit" -eq 2 ]; then
+  ok "hooks.json Stop command — runs from a spaced plugin root (exit 2 for MD040)"
 else
-  fail_test "hooks.json Stop command — spaced plugin root: exit $stop_spaced_exit, file modified: $([ "$before_spaced" != "$after_spaced" ] && echo yes || echo no) (unquoted \${CLAUDE_PLUGIN_ROOT}?)"
-fi
-
-# ---------------------------------------------------------------------------
-# Stop hook: markdownlint --fix leg + fix-then-lint ordering
-# Verify that markdownlint --fix runs (not just prettier) and that autofix
-# runs BEFORE the lint check (so fixable issues are cleaned up first).
-# ---------------------------------------------------------------------------
-echo ""
-echo "--- Stop hook: markdownlint --fix leg + fix-then-lint ordering ---"
-
-# MD022 (blank line after heading) is fixed by markdownlint --fix, not prettier.
-# Before fix: "# Title\nText right after heading.\n" (no blank line)
-# After fix:  "# Title\n\nText right after heading.\n" (blank line added)
-tmp_repo=$(setup_git_repo)
-printf '# Title\nText right after heading.\n' > "$tmp_repo/md022.md"
-git -C "$tmp_repo" add md022.md
-before_md022=$(cat "$tmp_repo/md022.md")
-(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1
-after_md022=$(cat "$tmp_repo/md022.md")
-if [ "$before_md022" != "$after_md022" ]; then
-  ok "Stop hook autofix — MD022 auto-fixed by markdownlint --fix (not prettier)"
-else
-  fail_test "Stop hook autofix — MD022 not fixed; markdownlint --fix leg may not run in Stop hook"
-fi
-
-# Combo: MD022 (fixable) + MD040 (unfixable).
-# Proves fix-then-lint ordering: file modified (MD022 fixed) AND exit 2 (MD040 remains).
-tmp_repo=$(setup_git_repo)
-printf '# Title\nText right after heading.\n\n```\ncode\n```\n' > "$tmp_repo/combo.md"
-git -C "$tmp_repo" add combo.md
-before_combo=$(cat "$tmp_repo/combo.md")
-combo_exit=0
-(cd "$tmp_repo" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK") >/dev/null 2>&1 || combo_exit=$?
-after_combo=$(cat "$tmp_repo/combo.md")
-if [ "$combo_exit" -eq 2 ]; then
-  ok "Stop hook fix-then-lint — MD040 still exits 2 after autofix (unfixable error persists)"
-else
-  fail_test "Stop hook fix-then-lint — expected exit 2, got $combo_exit"
-fi
-if [ "$before_combo" != "$after_combo" ]; then
-  ok "Stop hook fix-then-lint — file modified (MD022 auto-fixed before lint check ran)"
-else
-  fail_test "Stop hook fix-then-lint — file not modified; autofix may not run before lint"
+  fail_test "hooks.json Stop command — spaced plugin root: expected exit 2, got $stop_spaced_exit (unquoted \${CLAUDE_PLUGIN_ROOT}?)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -491,6 +424,77 @@ if cmp -s "$fixture_src" "$tmp_semantics"; then
 else
   fail_test "semantics-preserved fixture — hook changed file content; diff:"
   diff "$fixture_src" "$tmp_semantics" || true
+fi
+
+# ---------------------------------------------------------------------------
+# Stop hook: scoped to the session's own edits
+# PostToolUse records each edited .md path under the hook input's session_id;
+# Stop lints only that session's listed files, never the rest of the git tree.
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- Stop hook: session-scoped ---"
+
+# PostToolUse payload with a session_id, then Stop payload with a session_id.
+run_post_sid() {
+  printf '{"session_id":"%s","tool_input":{"file_path":"%s"}}' "$1" "$2" | \
+    CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" >/dev/null 2>&1
+}
+run_stop_sid() {
+  printf '{"session_id":"%s"}' "$1" | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$CHECK_HOOK" 2>&1 >/dev/null
+}
+
+# A modified .md in the tree that this session never edited: Stop leaves it
+# alone and does not report it.
+tmp_repo=$(setup_git_repo)
+printf '# Title\n\n```\ncode\n```\n' > "$tmp_repo/other.md"
+printf '# Title\n\nMine.\n' > "$tmp_repo/mine.md"
+git -C "$tmp_repo" add other.md mine.md
+before_other=$(cat "$tmp_repo/other.md")
+run_post_sid sidA "$tmp_repo/mine.md"
+scoped_exit=0
+scoped_err=$(cd "$tmp_repo" && run_stop_sid sidA) || scoped_exit=$?
+if [ "$scoped_exit" -eq 0 ] && [ -z "$scoped_err" ] && [ "$before_other" = "$(cat "$tmp_repo/other.md")" ]; then
+  ok "Stop scope — unedited modified .md in the tree is neither rewritten nor reported"
+else
+  fail_test "Stop scope — unedited file: exit $scoped_exit, stderr: $scoped_err"
+fi
+
+# A file the session edited that still has an unfixable error: exit 2.
+tmp_repo=$(setup_git_repo)
+printf '# Title\n\n```\ncode\n```\n' > "$tmp_repo/mine.md"
+run_post_sid sidB "$tmp_repo/mine.md"
+mine_exit=0
+mine_err=$(cd "$tmp_repo" && run_stop_sid sidB) || mine_exit=$?
+if [ "$mine_exit" -eq 2 ] && echo "$mine_err" | grep -q "MD040"; then
+  ok "Stop scope — session-edited file with unfixable error exits 2 with the error"
+else
+  fail_test "Stop scope — edited file: expected exit 2 with MD040, got $mine_exit: $mine_err"
+fi
+
+# Two sessions each see only their own files; Stop drops the list on exit 0.
+tmp_repo=$(setup_git_repo)
+printf '# Title\n\n```\ncode\n```\n' > "$tmp_repo/one.md"
+printf '# Title\n\n```\ncode\n```\n' > "$tmp_repo/two.md"
+run_post_sid sidC "$tmp_repo/one.md"
+run_post_sid sidD "$tmp_repo/two.md"
+c_err=$(run_stop_sid sidC) || true
+d_err=$(run_stop_sid sidD) || true
+if echo "$c_err" | grep -q "one.md" && ! echo "$c_err" | grep -q "two.md" \
+   && echo "$d_err" | grep -q "two.md" && ! echo "$d_err" | grep -q "one.md"; then
+  ok "Stop scope — two sessions each report only their own files"
+else
+  fail_test "Stop scope — sessions crossed: C=[$c_err] D=[$d_err]"
+fi
+
+tmp_repo=$(setup_git_repo)
+printf '# Title\n\nClean.\n' > "$tmp_repo/clean.md"
+run_post_sid sidE "$tmp_repo/clean.md"
+[ -s "$TMPDIR/mdlint-sessions/sidE.list" ] || fail_test "Stop scope — PostToolUse did not record sidE"
+run_stop_sid sidE >/dev/null || true
+if [ ! -e "$TMPDIR/mdlint-sessions/sidE.list" ]; then
+  ok "Stop scope — list is deleted when Stop exits 0"
+else
+  fail_test "Stop scope — list still present after a clean Stop"
 fi
 
 # --- Summary ---
