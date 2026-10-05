@@ -30,7 +30,8 @@ config/
 
 - **The hook never blocks.** Leftover issues go out as JSON on stdout (`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"..."}}`) with exit 0, so Claude sees them as context. There is no Stop hook: PostToolUse already formats every Write/Edit, and a Stop-time check could only duplicate it or block the agent. A missing `prettier` or `markdownlint-cli2` makes the hook a no-op.
 - **The PostToolUse hook command uses an `if`-gate** that runs `mdlint.sh` only for `.md` paths and cleanly no-ops for other edits.
-- **Config priority** (runtime): `$CLAUDE_PROJECT_DIR/.markdownlint.json` → `$HOME/.markdownlint.json` → `config/.markdownlint.json`. Projects and users override the bundled default; the bundled default is the final fallback.
+- **Config priority** (runtime): `$CLAUDE_PROJECT_DIR/.markdownlint.json` → `config/.markdownlint.json`. A project overrides the bundled default; `$HOME/.markdownlint.json` is deliberately not consulted, so a stale copy can't shadow the curated default.
+- **Tools run from the edited file's directory, on its basename.** markdownlint-cli2 lets a config discovered from cwd override `--config` for a file outside cwd, and hooks run with cwd = the project dir, so running from the file's dir makes `--config` win everywhere. The report therefore shows the basename; the message header carries the full path.
 
 ## Unversioned
 

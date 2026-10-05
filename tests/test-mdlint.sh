@@ -304,7 +304,7 @@ echo "--- mdlint.sh: semantics-preserving fixture ---"
 # committed copy; the test copies it to a real .md path before piping it
 # through the hook, then asserts the .md came out byte-identical to the .in.
 #
-# Config resolution is project .markdownlint.json -> $HOME/.markdownlint.json
+# Config resolution is project .markdownlint.json
 # -> plugin config (config/.markdownlint.json), no merge. This test must
 # exercise the PLUGIN's own config, not whatever the operator happens to have
 # in their real $HOME or project dir, so it runs with a throwaway HOME and an
@@ -358,6 +358,35 @@ if [ "$(jq '.hooks | has("Stop")' "$PLUGIN_ROOT/hooks/hooks.json")" = "false" ];
   ok "hooks.json has no Stop entry"
 else
   fail_test "hooks.json still registers a Stop hook"
+fi
+
+# (d) The resolved config applies to a file outside the hook's cwd (markdownlint-cli2
+# lets a config found from cwd override --config for such a file). MD036 is off in the bundled config.
+tmp_d=$(mktemp_md)
+printf '# Title\n\n**Bold heading**\n\nText.\n' > "$tmp_d"
+other_cwd=$(mktemp -d)
+printf '{"MD036": true}\n' > "$other_cwd/.markdownlint.json"   # a cwd config that must not shadow --config
+d_out=$(cd "$other_cwd" && printf '{"tool_input":{"file_path":"%s"}}' "$tmp_d" | HOME="$other_cwd" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1)
+if [ -z "$d_out" ]; then
+  ok "config applies to a file outside cwd — no MD036 note"
+else
+  fail_test "config ignored outside cwd: $d_out"
+fi
+
+# (e) A project .markdownlint.json wins over the plugin default; ~/.markdownlint.json is not consulted.
+proj=$(mktemp -d); fake_home=$(mktemp -d)
+printf '{"MD036": true, "MD040": false}\n' > "$proj/.markdownlint.json"
+printf '{"MD036": true}\n' > "$fake_home/.markdownlint.json"
+tmp_e=$(mktemp_md)
+printf '# Title\n\n```\ncode\n```\n' > "$tmp_e"
+e_out=$(cd "$proj" && printf '{"tool_input":{"file_path":"%s"}}' "$tmp_e" | HOME="$fake_home" CLAUDE_PROJECT_DIR="$proj" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1)
+tmp_e2=$(mktemp_md)
+printf '# Title\n\n**Bold heading**\n\nText.\n' > "$tmp_e2"
+e2_out=$(cd "$proj" && printf '{"tool_input":{"file_path":"%s"}}' "$tmp_e2" | HOME="$fake_home" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1)
+if [ -z "$e_out" ] && [ -z "$e2_out" ]; then
+  ok "config precedence — project config wins; \$HOME/.markdownlint.json is ignored"
+else
+  fail_test "config precedence: project=[$e_out] home=[$e2_out]"
 fi
 
 # --- Summary ---

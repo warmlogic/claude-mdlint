@@ -33,24 +33,28 @@ fi
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
-# Config priority: project > user home > plugin default.
+# Config priority: project > plugin default (absolute, since we run from the file's dir).
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "$CLAUDE_PROJECT_DIR/.markdownlint.json" ]; then
   LINT_CONFIG="$CLAUDE_PROJECT_DIR/.markdownlint.json"
-elif [ -f "$HOME/.markdownlint.json" ]; then
-  LINT_CONFIG="$HOME/.markdownlint.json"
 else
   LINT_CONFIG="$PLUGIN_ROOT/config/.markdownlint.json"
 fi
+LINT_CONFIG="$(cd "$(dirname "$LINT_CONFIG")" && pwd)/$(basename "$LINT_CONFIG")"
+
+# Run every tool from the file's directory on its basename: markdownlint-cli2 lets a
+# config found from cwd override --config for a file outside cwd.
+file_dir=$(dirname "$file_path")
+file_name=$(basename "$file_path")
 
 # Step 1: Prettier, then markdownlint --fix (each fails open when missing)
 if command -v prettier &>/dev/null; then
-  prettier --write --prose-wrap preserve --embedded-language-formatting off "$file_path" >/dev/null 2>&1 || true
+  (cd "$file_dir" && prettier --write --prose-wrap preserve --embedded-language-formatting off "$file_name" >/dev/null 2>&1) || true
 fi
 command -v markdownlint-cli2 &>/dev/null || exit 0
-markdownlint-cli2 --fix --config "$LINT_CONFIG" "$file_path" >/dev/null 2>&1 || true
+(cd "$file_dir" && markdownlint-cli2 --fix --config "$LINT_CONFIG" "$file_name" >/dev/null 2>&1) || true
 
 # Step 2: Report what is left, as context rather than an error
-output=$(markdownlint-cli2 --config "$LINT_CONFIG" "$file_path" 2>&1) || true
+output=$(cd "$file_dir" && markdownlint-cli2 --config "$LINT_CONFIG" "$file_name" 2>&1) || true
 errors=$(echo "$output" | grep "error MD" || true)
 [[ -n "$errors" ]] || exit 0
 
