@@ -302,13 +302,14 @@ else
   fail_test "hooks.json PostToolUse gate — did not look up jq via tool-path.sh"
 fi
 
-# tool-path.sh works in any shell the hook command may run in (no reliance on word-splitting).
+# tool-path.sh works in any shell the hook command may run in (no reliance on word-splitting),
+# and appends, so the user's own PATH order wins for a tool found in both places.
 tp_a=$(mktemp -d); tp_b=$(mktemp -d)
 for tp_sh in /bin/sh /bin/bash /bin/zsh; do
   [ -x "$tp_sh" ] || continue
   tp_out=$(env -i PATH=/bin MDLINT_TOOL_DIRS="$tp_a:$tp_b" "$tp_sh" -c '. "$1"; printf %s "$PATH"' _ "$PLUGIN_ROOT/scripts/tool-path.sh")
-  if [ "${tp_out#"$tp_a:$tp_b:"}" != "$tp_out" ]; then
-    ok "tool-path.sh under $tp_sh — prepends MDLINT_TOOL_DIRS in order"
+  if [ "${tp_out%":$tp_a:$tp_b"}" != "$tp_out" ]; then
+    ok "tool-path.sh under $tp_sh — appends MDLINT_TOOL_DIRS in order"
   else
     fail_test "tool-path.sh under $tp_sh — PATH=[$tp_out]"
   fi
