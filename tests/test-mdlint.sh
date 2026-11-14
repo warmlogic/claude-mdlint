@@ -362,6 +362,13 @@ else
   fail_test "hooks.json still registers a Stop hook"
 fi
 
+# (c2) hooks.json registers the SessionStart dependency check, on startup only.
+if [ "$(jq -r '.hooks.SessionStart[0].matcher // ""' "$PLUGIN_ROOT/hooks/hooks.json")" = "startup" ]; then
+  ok "hooks.json registers a SessionStart hook with matcher startup"
+else
+  fail_test "hooks.json has no SessionStart hook with matcher startup"
+fi
+
 # (d) The resolved config applies to a file outside the hook's cwd (markdownlint-cli2
 # lets a config found from cwd override --config for such a file). MD036 is off in the bundled config.
 tmp_d=$(mktemp_md)
@@ -408,6 +415,43 @@ if [ -z "$proj_beats_home_out" ]; then
   ok "config precedence — project config beats \$HOME config"
 else
   fail_test "config precedence — project did not beat home: $proj_beats_home_out"
+fi
+
+# ---------------------------------------------------------------------------
+# SessionStart dependency check
+# Runs the actual hooks.json SessionStart command in a clean env whose only tool
+# directory is a stub dir: PATH holds only system dirs and MDLINT_TOOL_DIRS points the
+# Homebrew injection at the stubs, so a stubbed tool is found only through that injection.
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- SessionStart dependency check ---"
+
+start_cmd=$(jq -r '.hooks.SessionStart[0].hooks[0].command // ""' "$PLUGIN_ROOT/hooks/hooks.json")
+
+# run_start_check <stub tool>... -> prints the hook's stdout; exit code in $start_exit
+run_start_check() {
+  local stubs t; stubs=$(mktemp -d)
+  for t in "$@"; do printf '#!/bin/sh\nexit 0\n' > "$stubs/$t"; chmod +x "$stubs/$t"; done
+  start_exit=0
+  start_out=$(env -i HOME="$HOME" PATH="/usr/bin:/bin" MDLINT_TOOL_DIRS="$stubs" \
+    CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash -c "$start_cmd" 2>/dev/null) || start_exit=$?
+}
+
+run_start_check jq prettier
+start_msg=$(printf '%s' "$start_out" | jq -r '.systemMessage // ""' 2>/dev/null)
+if [ "$start_exit" -eq 0 ] && printf '%s' "$start_msg" | grep -q "markdownlint-cli2" \
+  && printf '%s' "$start_msg" | grep -qF "brew install markdownlint-cli2" \
+  && ! printf '%s' "$start_msg" | grep -q "^- prettier"; then
+  ok "SessionStart — markdownlint-cli2 missing: systemMessage names it and its install command, exit 0"
+else
+  fail_test "SessionStart — markdownlint-cli2 missing: exit $start_exit, output [$start_out]"
+fi
+
+run_start_check jq prettier markdownlint-cli2
+if [ "$start_exit" -eq 0 ] && [ -z "$start_out" ]; then
+  ok "SessionStart — all tools present: silent, exit 0"
+else
+  fail_test "SessionStart — all tools present: exit $start_exit, output [$start_out]"
 fi
 
 # --- Summary ---

@@ -1,13 +1,24 @@
 {
-  "description": "Auto-format markdown on Write/Edit; leftover lint issues are reported as non-blocking context",
+  "description": "Auto-format markdown on Write/Edit; leftover lint issues are reported as non-blocking context; missing tools are named once at session start",
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/check-deps.sh\""
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "input=$(cat); if printf '%s' \"$input\" | jq -e '(.tool_input.file_path // \"\") | endswith(\".md\")' >/dev/null 2>&1; then printf '%s' \"$input\" | bash \"${CLAUDE_PLUGIN_ROOT}/scripts/mdlint.sh\"; fi"
+            "command": "input=$(cat); if printf '%s' \"$input\" | PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\" jq -e '(.tool_input.file_path // \"\") | endswith(\".md\")' >/dev/null 2>&1; then printf '%s' \"$input\" | bash \"${CLAUDE_PLUGIN_ROOT}/scripts/mdlint.sh\"; fi"
           }
         ]
       }
