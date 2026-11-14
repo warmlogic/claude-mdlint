@@ -3,7 +3,7 @@
 This is the canonical contributor guide, at the repo root. `.claude/CLAUDE.md` is a symlink to
 this file, so Claude Code loads the same content as project memory.
 
-Claude Code plugin that auto-formats and lints Markdown files. A PostToolUse hook formats edited `.md` files and never blocks the agent; a SessionStart hook names any tool it is missing, once per session.
+Claude Code plugin that auto-formats and lints Markdown files. A PostToolUse hook formats edited `.md` files and never blocks the agent; a SessionStart hook names any tool it is missing when a new session starts.
 
 ## Running tests
 
@@ -31,7 +31,7 @@ config/
 ## Non-obvious design decisions
 
 - **The hook never blocks.** Leftover issues go out as JSON on stdout (`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"..."}}`) with exit 0, so Claude sees them as context. There is no Stop hook: PostToolUse already formats every Write/Edit, and a Stop-time check could only duplicate it or block the agent. A missing tool makes it skip that tool's step (no jq: the gate skips everything; no markdownlint-cli2: lint fix and report; no prettier: formatting).
-- **Missing tools are named once, at session start** ([runtime contract](https://github.com/warmlogic/ai-plugin-marketplace/blob/main/RUNTIME.md), rule 4). The PostToolUse hook stays fail-open and quiet on every edit; `check-deps.sh` runs on `startup` only and reports through JSON `systemMessage`, because a hook's plain stderr at exit 0 is not shown to the user. It builds that JSON with `printf`, since jq may be the missing tool. Hooks stay in the hook's process group (no `setsid`, `setpgid` or backgrounded daemon): Claude Code ends a timed-out hook by signaling that group.
+- **Missing tools are named when a new session starts** ([runtime contract](https://github.com/warmlogic/ai-plugin-marketplace/blob/main/RUNTIME.md), rule 4). The PostToolUse hook stays fail-open and quiet on every edit; `check-deps.sh` runs on `startup` only and reports through JSON `systemMessage`, because a hook's plain stderr at exit 0 is not shown to the user. It builds that JSON with `printf`, since jq may be the missing tool. Hooks stay in the hook's process group (no `setsid`, `setpgid` or backgrounded daemon): Claude Code ends a timed-out hook by signaling that group.
 - **Every hook finds tools the same way.** Hooks run in a non-login shell, so `tool-path.sh` appends `/opt/homebrew/bin` and `/usr/local/bin` to PATH (appends, so a tool already on PATH keeps the user's order), and the hooks.json gate (before its `jq`) and both scripts source it; otherwise the session-start check could disagree with what the edit hook finds. `MDLINT_TOOL_DIRS` (colon-separated) replaces that list, which is how the tests make a tool genuinely missing: trimming PATH alone doesn't, because the injection finds the Homebrew copy again.
 - **The PostToolUse hook command uses an `if`-gate** that runs `mdlint.sh` only for `.md` paths and cleanly no-ops for other edits.
 - **Config priority** (runtime): `$CLAUDE_PROJECT_DIR/.markdownlint.json` → `$HOME/.markdownlint.json` → `config/.markdownlint.json`. The winning file replaces the bundled default whole (no merge), so a personal or project file should start as a copy of the bundled one.

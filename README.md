@@ -16,7 +16,7 @@ A file that is fixed cleanly produces no output. The hook always exits 0, and a 
 
 ### SessionStart — `scripts/check-deps.sh` (on startup)
 
-Checks for jq, markdownlint-cli2 and prettier once per session. When one is missing, it shows a note naming it, what is skipped without it, and its install command. It prints nothing when all are present, and never blocks.
+Checks for jq, markdownlint-cli2 and prettier when a new session starts. When one is missing, it shows a note naming it, what is skipped without it, and its install command. It prints nothing when all are present, and never blocks.
 
 ## Lint config
 
