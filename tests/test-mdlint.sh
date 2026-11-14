@@ -302,6 +302,18 @@ else
   fail_test "hooks.json PostToolUse gate — did not look up jq via tool-path.sh"
 fi
 
+# tool-path.sh works in any shell the hook command may run in (no reliance on word-splitting).
+tp_a=$(mktemp -d); tp_b=$(mktemp -d)
+for tp_sh in /bin/sh /bin/bash /bin/zsh; do
+  [ -x "$tp_sh" ] || continue
+  tp_out=$(env -i PATH=/bin MDLINT_TOOL_DIRS="$tp_a:$tp_b" "$tp_sh" -c '. "$1"; printf %s "$PATH"' _ "$PLUGIN_ROOT/scripts/tool-path.sh")
+  if [ "${tp_out#"$tp_a:$tp_b:"}" != "$tp_out" ]; then
+    ok "tool-path.sh under $tp_sh — prepends MDLINT_TOOL_DIRS in order"
+  else
+    fail_test "tool-path.sh under $tp_sh — PATH=[$tp_out]"
+  fi
+done
+
 # ---------------------------------------------------------------------------
 # mdlint.sh — semantics-preserving fixture
 # The hook must never change document MEANING: a bare "#NNN" line is a
