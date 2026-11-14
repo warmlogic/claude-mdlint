@@ -4,11 +4,7 @@ set -euo pipefail
 #@check 1  fix     Prettier + markdownlint auto-fix — tables, whitespace, heading structure, blank lines
 #@check 2  report  Issues left after the fix → non-blocking context for Claude (exit 0)
 
-# CC hooks run in a non-login shell — /opt/homebrew/bin isn't on PATH by default
-for _d in /opt/homebrew/bin /usr/local/bin; do
-  [[ -d "$_d" && ":$PATH:" != *":$_d:"* ]] && export PATH="$_d:$PATH"
-done
-unset _d
+source "$(dirname "$0")/tool-path.sh"
 
 # --- --help: print check summary from #@check tags in this script ---
 if [ "${1:-}" = "--help" ]; then

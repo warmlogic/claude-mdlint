@@ -290,6 +290,31 @@ else
   fail_test "hooks.json PostToolUse command — spaced plugin root: expected exit 0, got $spaced_exit (unquoted \${CLAUDE_PLUGIN_ROOT}?)"
 fi
 
+# The gate's own jq lookup goes through the same tool-path injection as the scripts:
+# with jq only in an MDLINT_TOOL_DIRS dir, the gate must still find (and call) it.
+gate_stubs=$(mktemp -d); gate_mark="$gate_stubs/called"
+printf '#!/bin/sh\n: > "%s"\nexit 1\n' "$gate_mark" > "$gate_stubs/jq"; chmod +x "$gate_stubs/jq"
+printf '{"tool_input":{"file_path":"/tmp/x.md"}}' | env -i HOME="$HOME" PATH="/bin" \
+  MDLINT_TOOL_DIRS="$gate_stubs" CLAUDE_PLUGIN_ROOT="$spaced_root" /bin/bash -c "$post_cmd" >/dev/null 2>&1
+if [ -f "$gate_mark" ]; then
+  ok "hooks.json PostToolUse gate — finds jq through the MDLINT_TOOL_DIRS injection"
+else
+  fail_test "hooks.json PostToolUse gate — did not look up jq via tool-path.sh"
+fi
+
+# tool-path.sh works in any shell the hook command may run in (no reliance on word-splitting),
+# and appends, so the user's own PATH order wins for a tool found in both places.
+tp_a=$(mktemp -d); tp_b=$(mktemp -d)
+for tp_sh in /bin/sh /bin/bash /bin/zsh; do
+  [ -x "$tp_sh" ] || continue
+  tp_out=$(env -i PATH=/bin MDLINT_TOOL_DIRS="$tp_a:$tp_b" "$tp_sh" -c '. "$1"; printf %s "$PATH"' _ "$PLUGIN_ROOT/scripts/tool-path.sh")
+  if [ "${tp_out%":$tp_a:$tp_b"}" != "$tp_out" ]; then
+    ok "tool-path.sh under $tp_sh — appends MDLINT_TOOL_DIRS in order"
+  else
+    fail_test "tool-path.sh under $tp_sh — PATH=[$tp_out]"
+  fi
+done
+
 # ---------------------------------------------------------------------------
 # mdlint.sh — semantics-preserving fixture
 # The hook must never change document MEANING: a bare "#NNN" line is a
@@ -362,6 +387,13 @@ else
   fail_test "hooks.json still registers a Stop hook"
 fi
 
+# (c2) hooks.json registers the SessionStart dependency check, on startup only.
+if [ "$(jq -r '.hooks.SessionStart[0].matcher // ""' "$PLUGIN_ROOT/hooks/hooks.json")" = "startup" ]; then
+  ok "hooks.json registers a SessionStart hook with matcher startup"
+else
+  fail_test "hooks.json has no SessionStart hook with matcher startup"
+fi
+
 # (d) The resolved config applies to a file outside the hook's cwd (markdownlint-cli2
 # lets a config found from cwd override --config for such a file). MD036 is off in the bundled config.
 tmp_d=$(mktemp_md)
@@ -408,6 +440,43 @@ if [ -z "$proj_beats_home_out" ]; then
   ok "config precedence — project config beats \$HOME config"
 else
   fail_test "config precedence — project did not beat home: $proj_beats_home_out"
+fi
+
+# ---------------------------------------------------------------------------
+# SessionStart dependency check
+# Runs the actual hooks.json SessionStart command in a clean env whose only tool
+# directory is a stub dir: PATH holds only system dirs and MDLINT_TOOL_DIRS points the
+# Homebrew injection at the stubs, so a stubbed tool is found only through that injection.
+# ---------------------------------------------------------------------------
+echo ""
+echo "--- SessionStart dependency check ---"
+
+start_cmd=$(jq -r '.hooks.SessionStart[0].hooks[0].command // ""' "$PLUGIN_ROOT/hooks/hooks.json")
+
+# run_start_check <stub tool>... -> prints the hook's stdout; exit code in $start_exit
+run_start_check() {
+  local stubs t; stubs=$(mktemp -d)
+  for t in "$@"; do printf '#!/bin/sh\nexit 0\n' > "$stubs/$t"; chmod +x "$stubs/$t"; done
+  start_exit=0
+  start_out=$(env -i HOME="$HOME" PATH="/usr/bin:/bin" MDLINT_TOOL_DIRS="$stubs" \
+    CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash -c "$start_cmd" 2>/dev/null) || start_exit=$?
+}
+
+run_start_check jq prettier
+start_msg=$(printf '%s' "$start_out" | jq -r '.systemMessage // ""' 2>/dev/null)
+if [ "$start_exit" -eq 0 ] && printf '%s' "$start_msg" | grep -q "markdownlint-cli2" \
+  && printf '%s' "$start_msg" | grep -qF "brew install markdownlint-cli2" \
+  && ! printf '%s' "$start_msg" | grep -q "^- prettier"; then
+  ok "SessionStart — markdownlint-cli2 missing: systemMessage names it and its install command, exit 0"
+else
+  fail_test "SessionStart — markdownlint-cli2 missing: exit $start_exit, output [$start_out]"
+fi
+
+run_start_check jq prettier markdownlint-cli2
+if [ "$start_exit" -eq 0 ] && [ -z "$start_out" ]; then
+  ok "SessionStart — all tools present: silent, exit 0"
+else
+  fail_test "SessionStart — all tools present: exit $start_exit, output [$start_out]"
 fi
 
 # --- Summary ---
