@@ -290,6 +290,18 @@ else
   fail_test "hooks.json PostToolUse command — spaced plugin root: expected exit 0, got $spaced_exit (unquoted \${CLAUDE_PLUGIN_ROOT}?)"
 fi
 
+# The gate's own jq lookup goes through the same tool-path injection as the scripts:
+# with jq only in an MDLINT_TOOL_DIRS dir, the gate must still find (and call) it.
+gate_stubs=$(mktemp -d); gate_mark="$gate_stubs/called"
+printf '#!/bin/sh\n: > "%s"\nexit 1\n' "$gate_mark" > "$gate_stubs/jq"; chmod +x "$gate_stubs/jq"
+printf '{"tool_input":{"file_path":"/tmp/x.md"}}' | env -i HOME="$HOME" PATH="/bin" \
+  MDLINT_TOOL_DIRS="$gate_stubs" CLAUDE_PLUGIN_ROOT="$spaced_root" /bin/bash -c "$post_cmd" >/dev/null 2>&1
+if [ -f "$gate_mark" ]; then
+  ok "hooks.json PostToolUse gate — finds jq through the MDLINT_TOOL_DIRS injection"
+else
+  fail_test "hooks.json PostToolUse gate — did not look up jq via tool-path.sh"
+fi
+
 # ---------------------------------------------------------------------------
 # mdlint.sh — semantics-preserving fixture
 # The hook must never change document MEANING: a bare "#NNN" line is a

@@ -12,13 +12,11 @@ Runs immediately after Claude writes or edits a `.md` file:
 2. Markdownlint auto-fixes heading structure, blank lines, code fences
 3. Issues markdownlint cannot auto-fix are passed to Claude as informational context (`hookSpecificOutput.additionalContext`, exit 0), with a fix hint for the common ones
 
-A file that is fixed cleanly produces no output. The hook always exits 0, and a missing tool makes it skip that tool's step (see [Dependencies](#dependencies)). There is no Stop hook.
+A file that is fixed cleanly produces no output. The hook always exits 0, and a missing tool makes it skip that tool's step (see [Dependencies](#dependencies)). There is no Stop hook. Run `bash scripts/mdlint.sh --help` for the full check list.
 
 ### SessionStart — `scripts/check-deps.sh` (on startup)
 
 Checks for jq, markdownlint-cli2 and prettier once per session. When one is missing, it shows a note naming it, what is skipped without it, and its install command. It prints nothing when all are present, and never blocks.
-
-Run `bash scripts/mdlint.sh --help` for the full check list.
 
 ## Lint config
 

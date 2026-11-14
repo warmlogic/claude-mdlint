@@ -17,5 +17,5 @@ note prettier "markdown is not formatted (markdownlint still fixes and reports).
 
 [ -n "$missing" ] || exit 0
 # No jq to build the JSON: the strings above hold no quotes or backslashes, so printf is safe.
-printf '{"systemMessage":"mdlint: missing tools, so markdown checks are skipped this session:%s"}\n' "$missing"
+printf '{"systemMessage":"mdlint: missing tools; these steps are skipped this session:%s"}\n' "$missing"
 exit 0

@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "input=$(cat); if printf '%s' \"$input\" | PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\" jq -e '(.tool_input.file_path // \"\") | endswith(\".md\")' >/dev/null 2>&1; then printf '%s' \"$input\" | bash \"${CLAUDE_PLUGIN_ROOT}/scripts/mdlint.sh\"; fi"
+            "command": "input=$(cat); . \"${CLAUDE_PLUGIN_ROOT}/scripts/tool-path.sh\"; if printf '%s' \"$input\" | jq -e '(.tool_input.file_path // \"\") | endswith(\".md\")' >/dev/null 2>&1; then printf '%s' \"$input\" | bash \"${CLAUDE_PLUGIN_ROOT}/scripts/mdlint.sh\"; fi"
           }
         ]
       }
